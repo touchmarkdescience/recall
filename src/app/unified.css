@@ -287,6 +287,15 @@ a:hover,.text-link:hover,.back:hover,.sales-back:hover,.auth-switch button:hover
 .review-due-choices{display:flex;flex-wrap:wrap;gap:7px}
 .review-topic{display:inline-flex;margin:8px 0 0;padding:7px 10px;border-radius:8px;background:#edf6ed;color:#397a54;font-size:12px;font-weight:700}
 .followup-unlinked{font-size:11px;color:#87998d}
+.capture-flow[hidden]{display:none}
+.discard-transcript{border:0;background:none;color:#a05d50;font-size:12px;font-weight:700;padding:12px 0}
+.discard-transcript:disabled{opacity:.45}
+.followup-skeleton{justify-content:space-between}
+.followup-skeleton span,.followup-skeleton strong{display:block;height:13px;width:48%;border-radius:7px;background:linear-gradient(90deg,#edf3ee,#dce9df,#edf3ee);background-size:200% 100%;animation:followup-loading 1.3s ease-in-out infinite}
+.followup-skeleton strong{height:22px;width:82%}.followup-skeleton span:last-child{width:62%}
+.followup-empty button{margin-top:12px;min-height:44px;border:1px solid #cee1d1;border-radius:9px;background:#fff;color:#327b58;padding:8px 16px;font-weight:800}
+@keyframes followup-loading{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.followup-skeleton span,.followup-skeleton strong{animation:none}}
 @media(max-width:780px){
   html{-webkit-text-size-adjust:100%}
   input,select,textarea{font-size:16px!important}

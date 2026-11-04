@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 export type DraftAction = { kind: 'follow_up'|'reminder'|'meeting'; title: string; dueAt: string | null; timeSpecified?: boolean; durationMinutes?: number; timeChoices?: string[] };
 export type Extraction = { contactName: string; topic: string; summary: string; actions: DraftAction[]; mode: 'AI'|'Local rules' };
 const zone='Asia/Kolkata';
+const months=['january','february','march','april','may','june','july','august','september','october','november','december'];
 export function parseIST(phrase: string, now=new Date()): string | null {
   const lower=phrase.toLowerCase().replace(/\b([ap])\.m\./g,'$1m');
   const base=DateTime.fromJSDate(now,{zone});
@@ -15,6 +16,10 @@ export function parseIST(phrase: string, now=new Date()): string | null {
   else if(/\bday after tomorrow\b/.test(lower)) d=base.plus({days:2});
   else if(/\btomorrow\b/.test(lower)) d=base.plus({days:1});
   else if(/\btoday\b/.test(lower)) d=base;
+  const dayFirst=lower.match(/\b(?:on\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)(?:\s+(\d{4}))?\b/);
+  const monthFirst=lower.match(/\b([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/);
+  const named=dayFirst&&months.findIndex(month=>month.startsWith(dayFirst[2]))>=0?{day:Number(dayFirst[1]),month:months.findIndex(month=>month.startsWith(dayFirst[2]))+1,year:Number(dayFirst[3]||base.year)}:monthFirst&&months.findIndex(month=>month.startsWith(monthFirst[1]))>=0?{day:Number(monthFirst[2]),month:months.findIndex(month=>month.startsWith(monthFirst[1]))+1,year:Number(monthFirst[3]||base.year)}:null;
+  if(named){const time=lower.match(/\b(?:at|around|by)\s+(\d{1,2})(?::(\d\d))?\s*(am|pm)?\b/);const hour=time?Number(time[1])%12+(time[3]==='pm'?12:time[3]==='am'?0:(Number(time[1])<8?12:0)):9;const date=DateTime.fromObject({...named,hour,minute:Number(time?.[2]||0),second:0,millisecond:0},{zone});return date.isValid?date.toUTC().toISO():null}
   if(d) {
     const time=lower.match(/\b(?:at|around|by)\s+(\d{1,2})(?::(\d\d))?\s*(am|pm)?\b/);
     let hour=9, minute=0;
@@ -32,14 +37,15 @@ export function parseIST(phrase: string, now=new Date()): string | null {
 }
 export function localExtract(transcript: string): Extraction {
   const clean=transcript.trim();
-  const match=clean.match(/\b(?:spoke (?:to|with)|talked (?:to|with)|met(?: with)?|called|call|meeting(?: with)?|meet with|follow up with)\s+([\p{L}'-]+)/iu);
-  const trailing=match&&match.index!==undefined?clean.slice(match.index+match[0].length).match(/^\s+([A-Z][\p{L}'-]*)/u)?.[1]:undefined;
-  const candidate=[match?.[1],trailing].filter(Boolean).join(' ').replace(/[.,;!?]+$/,'').trim();
+  const normalized=clean.replace(/\b(Dr|Mr|Mrs|Ms|Prof)\.(?=\s)/gi,'$1');
+  const match=normalized.match(/\b(?:spoke (?:to|with)|talked (?:to|with)|met(?: with)?|called|call|meeting(?: with)?|meet with|follow up with)\s+((?:(?:Dr|Mr|Mrs|Ms|Prof)\s+)?[\p{L}'-]+(?:\s+[\p{L}'-]+){0,2}?)(?=\s+(?:on|at|about|for|to|tomorrow|today|next|in|and|or)\b|[.,;!?]|$)/iu);
+  const candidate=match?.[1]?.trim()||'';
   const contactName=candidate&&candidate[0]===candidate[0].toLocaleUpperCase()&&!/^(today|tomorrow|client|customer|prospect|team|someone|anyone)$/i.test(candidate)?candidate:'';
   const topic=clean.match(/\babout\s+(.+?)(?=\s*(?:[;,.]|\bremind\b|\bor\b|$))/i)?.[1]?.trim()||'';
   const spokenTimes=[...clean.matchAll(/\b(?:at|by|around|is)\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?=\s|$|[.;!?—-])/gi)].map(m=>`${m[1]}:${m[2]||'00'} ${m[3].replace(/\./g,'').toUpperCase()}`);
   const conflicting=/\b(?:or|versus|vs\.?|instead)\b/i.test(clean)&&new Set(spokenTimes).size>1;
-  const segments=conflicting?[clean]:clean.split(/(?:[.;]|\s+and\s+(?=(?:call|follow|remind|meet|schedule|reschedule|send|check)\b))/i).map(s=>s.trim()).filter(Boolean);
+  const protectedText=clean.replace(/\b(Dr|Mr|Mrs|Ms|Prof)\.(?=\s)/gi,'$1\uE000');
+  const segments=conflicting?[clean]:protectedText.split(/(?:[.;]|\s+and\s+(?=(?:call|follow|remind|meet|schedule|reschedule|send|check)\b))/i).map(s=>s.replace(/\uE000/g,'.').trim()).filter(Boolean);
   const actions: DraftAction[]=[];
   for(const segment of segments) {
     const kind=/\b(meet|meeting|schedule|reschedule)\b/i.test(segment)?'meeting':/\b(remind|reminder)\b/i.test(segment)?'reminder':/\b(follow up|call|send|share|submit|deliver|prepare|update|finish|check back|reach out|get back)\b/i.test(segment)?'follow_up':null;

@@ -87,6 +87,7 @@ export class PcmCapture {
   private chunks: Float32Array[] = [];
   private cancelled = false;
   private limitReached = false;
+  get isRecording() { return !!this.stream && !this.cancelled; }
   constructor(
     private options: {
       onError: (message: string) => void;
