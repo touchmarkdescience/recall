@@ -6,6 +6,8 @@ import { clearSession, currentUser, passwordHash, passwordValid, setSession } fr
 import { db, row, rows, run } from '@/lib/db';
 import { extract, type DraftAction } from '@/lib/extract';
 import { enqueueSheetEvent, flushSheetOutbox, getSettings } from '@/lib/settings';
+import { cloudConfigured } from '@/lib/cloud';
+import { cloudGET, cloudPOST, cloudDELETE, cloudDispatch } from '@/lib/cloudRoutes';
 
 export const runtime='nodejs';
 type Context={params:Promise<{path:string[]}>};
@@ -18,6 +20,8 @@ const asError=(e:unknown)=>error(e instanceof Error?e.message:'Something went wr
 function sameOrigin(req:NextRequest) { const origin=req.headers.get('origin'); if(!origin)return true;try{return new URL(origin).host===req.headers.get('host')}catch{return false} }
 
 export async function GET(req:NextRequest,{params}:Context) {
+  if(cloudConfigured())return cloudGET(req,{params});
+  if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
   try {
     const path=(await params).path.join('/');
     if(path==='me') return json({user:await currentUser(),aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:!!(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),transcriptionProvider:process.env.GEMINI_API_KEY?'Google Gemini':process.env.OPENAI_API_KEY?'OpenAI':'None',pushConfigured:!!(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''});
@@ -26,8 +30,8 @@ export async function GET(req:NextRequest,{params}:Context) {
     if(path==='dashboard') {
       getSettings(user.id);
       const contacts=rows('SELECT id,name,phone,created_at AS createdAt FROM contacts WHERE user_id=? ORDER BY name COLLATE NOCASE',user.id);
-      const actions=rows('SELECT a.id,a.contact_id AS contactId,c.name AS contactName,a.kind,a.title,a.due_at AS dueAt,a.time_specified AS timeSpecified,a.duration_minutes AS durationMinutes,a.status,a.created_at AS createdAt FROM actions a JOIN contacts c ON c.id=a.contact_id WHERE a.user_id=? ORDER BY CASE WHEN a.status=? THEN 0 ELSE 1 END,a.due_at IS NULL,a.due_at,a.created_at DESC LIMIT 1000',user.id,'pending');
-      const interactions=rows('SELECT i.id,i.contact_id AS contactId,c.name AS contactName,i.summary,i.transcript,i.occurred_at AS occurredAt FROM interactions i JOIN contacts c ON c.id=i.contact_id WHERE i.user_id=? ORDER BY i.occurred_at DESC LIMIT 30',user.id);
+      const actions=rows('SELECT a.id,COALESCE(a.contact_id,\'\') AS contactId,COALESCE(c.name,\'\') AS contactName,a.kind,a.title,a.due_at AS dueAt,a.time_specified AS timeSpecified,a.duration_minutes AS durationMinutes,a.status,a.created_at AS createdAt FROM actions a LEFT JOIN contacts c ON c.id=a.contact_id WHERE a.user_id=? ORDER BY CASE WHEN a.status=? THEN 0 ELSE 1 END,a.due_at IS NULL,a.due_at,a.created_at DESC LIMIT 1000',user.id,'pending');
+      const interactions=rows('SELECT i.id,COALESCE(i.contact_id,\'\') AS contactId,COALESCE(c.name,\'\') AS contactName,i.summary,i.transcript,i.occurred_at AS occurredAt FROM interactions i LEFT JOIN contacts c ON c.id=i.contact_id WHERE i.user_id=? ORDER BY i.occurred_at DESC LIMIT 30',user.id);
       return json({contacts,actions,interactions});
     }
     if(path==='contact') {
@@ -41,6 +45,8 @@ export async function GET(req:NextRequest,{params}:Context) {
 }
 
 export async function POST(req:NextRequest,{params}:Context) {
+  if(cloudConfigured())return cloudPOST(req,{params});
+  if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
   try {
     if(!sameOrigin(req)) return error('Invalid origin',403);
     const path=(await params).path.join('/');
@@ -76,19 +82,20 @@ export async function POST(req:NextRequest,{params}:Context) {
       let contactId=clean(body.contactId), contactName=clean(body.contactName);
       const actions=Array.isArray(body.actions)?body.actions as DraftAction[]:[];
       if(actions.length>20) return error('Too many actions in one note.');
+      if(actions.some(action=>(action.timeChoices?.length||0)>1))return error('Choose one of the spoken times before saving.');
       for(const action of actions) if(!['follow_up','reminder','meeting'].includes(action.kind)||!clean(action.title)||action.title.length>500||(action.dueAt&&!DateTime.fromISO(action.dueAt).isValid)||!Number.isInteger(action.durationMinutes??30)||(action.durationMinutes??30)<15||(action.durationMinutes??30)>480) return error('Review the action titles, dates, and durations.');
       if(actions.some(action=>action.dueAt&&action.timeSpecified!==false&&DateTime.fromISO(action.dueAt).toMillis()<Date.now())) return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
       const transaction=db();transaction.exec('BEGIN');
       try {
         if(contactId) {const contact=row('SELECT id FROM contacts WHERE id=? AND user_id=?',contactId,user.id);if(!contact) throw new Error('Contact not found');}
-        else {if(!contactName||contactName.length>120) throw new Error('Choose or enter a contact name');contactId=randomUUID();run('INSERT INTO contacts(id,user_id,name,created_at) VALUES(?,?,?,?)',contactId,user.id,contactName,now());}
+        else if(contactName) {if(contactName.length>120) throw new Error('Person name is too long');contactId=randomUUID();run('INSERT INTO contacts(id,user_id,name,created_at) VALUES(?,?,?,?)',contactId,user.id,contactName,now());}
         const interactionId=randomUUID();
-        run('INSERT INTO interactions(id,user_id,contact_id,transcript,summary,occurred_at,created_at) VALUES(?,?,?,?,?,?,?)',interactionId,user.id,contactId,transcript,summary,occurredAt,now());
-        for(const action of actions) run('INSERT INTO actions(id,user_id,contact_id,interaction_id,kind,title,due_at,time_specified,duration_minutes,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',randomUUID(),user.id,contactId,interactionId,action.kind,clean(action.title),action.dueAt||null,action.timeSpecified===false?0:1,action.durationMinutes??30,'pending',now());
-        const contact=row<{name:string}>('SELECT name FROM contacts WHERE id=? AND user_id=?',contactId,user.id)!;
-        enqueueSheetEvent(user.id,{type:'interaction',interactionId,contactId,contactName:contact.name,transcript,summary,recordedAt:now()});
+        run('INSERT INTO interactions(id,user_id,contact_id,transcript,summary,occurred_at,created_at) VALUES(?,?,?,?,?,?,?)',interactionId,user.id,contactId||null,transcript,summary,occurredAt,now());
+        for(const action of actions) run('INSERT INTO actions(id,user_id,contact_id,interaction_id,kind,title,due_at,time_specified,duration_minutes,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',randomUUID(),user.id,contactId||null,interactionId,action.kind,clean(action.title),action.dueAt||null,action.timeSpecified===false?0:1,action.durationMinutes??30,'pending',now());
+        const contact=contactId?row<{name:string}>('SELECT name FROM contacts WHERE id=? AND user_id=?',contactId,user.id):null;
+        enqueueSheetEvent(user.id,{type:'interaction',interactionId,contactId:contactId||null,contactName:contact?.name||'',transcript,summary,recordedAt:now()});
         const savedActions=rows<{id:string;kind:string;title:string;dueAt:string|null;timeSpecified:number;durationMinutes:number;status:string;createdAt:string}>('SELECT id,kind,title,due_at AS dueAt,time_specified AS timeSpecified,duration_minutes AS durationMinutes,status,created_at AS createdAt FROM actions WHERE interaction_id=? AND user_id=?',interactionId,user.id);
-        for(const action of savedActions)enqueueSheetEvent(user.id,{type:'action',actionId:action.id,interactionId,contactId,contactName:contact.name,...action});
+        for(const action of savedActions)enqueueSheetEvent(user.id,{type:'action',actionId:action.id,interactionId,contactId:contactId||null,contactName:contact?.name||'',...action});
         transaction.exec('COMMIT');
         const sync=await flushSheetOutbox(user.id);
         return json({ok:true,contactId,interactionId,sheetSyncPending:sync.pending});
@@ -112,7 +119,7 @@ export async function POST(req:NextRequest,{params}:Context) {
       if(body.dueAt!==undefined&&dueAt&&timeSpecified!==0&&DateTime.fromISO(dueAt).toMillis()<Date.now())return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
       const result=run('UPDATE actions SET status=?,title=?,due_at=?,time_specified=?,notified_at=NULL WHERE id=? AND user_id=?',status,title,dueAt,timeSpecified,id,user.id);
       if(!result.changes)return error('Action not found',404);
-      const action=row<{interactionId:string|null;contactId:string;contactName:string;kind:string;createdAt:string}>('SELECT a.interaction_id AS interactionId,a.contact_id AS contactId,c.name AS contactName,a.kind,a.created_at AS createdAt FROM actions a JOIN contacts c ON c.id=a.contact_id WHERE a.id=? AND a.user_id=?',id,user.id)!;
+      const action=row<{interactionId:string|null;contactId:string|null;contactName:string|null;kind:string;createdAt:string}>('SELECT a.interaction_id AS interactionId,a.contact_id AS contactId,c.name AS contactName,a.kind,a.created_at AS createdAt FROM actions a LEFT JOIN contacts c ON c.id=a.contact_id WHERE a.id=? AND a.user_id=?',id,user.id)!;
       enqueueSheetEvent(user.id,{type:'action',actionId:id,...action,title,dueAt,timeSpecified,status});
       const sync=await flushSheetOutbox(user.id);
       return json({ok:true,sheetSyncPending:sync.pending});
@@ -123,7 +130,7 @@ export async function POST(req:NextRequest,{params}:Context) {
       if(![0,15,30,60,1440].includes(reminderMinutes))return error('Choose a reminder time from the list.');
       const sheetWebhookUrl=clean(body.sheetWebhookUrl);
       const sheetSecret=clean(body.sheetSecret);
-      if(sheetWebhookUrl){try{const u=new URL(sheetWebhookUrl);const local=process.env.NODE_ENV!=='production'&&['127.0.0.1','localhost'].includes(u.hostname);if(!(u.protocol==='https:'&&['script.google.com','script.googleusercontent.com'].includes(u.hostname))&&!local)return error('Use an Apps Script web app URL.');}catch{return error('Enter a valid Apps Script URL.')}}
+      if(sheetWebhookUrl){try{const u=new URL(sheetWebhookUrl);const local=['127.0.0.1','localhost'].includes(u.hostname);if(!(u.protocol==='https:'&&['script.google.com','script.googleusercontent.com'].includes(u.hostname))&&!local)return error('Use an Apps Script web app URL.');}catch{return error('Enter a valid Apps Script URL.')}}
       if(sheetWebhookUrl&&sheetSecret.length<16&&!getSettings(user.id).sheetConnected)return error('Use a sheet secret of at least 16 characters.');
       const existing=row<{secret:string|null}>('SELECT sheet_secret AS secret FROM user_settings WHERE user_id=?',user.id);
       run('INSERT INTO user_settings(user_id,push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET push_enabled=excluded.push_enabled,reminder_minutes=excluded.reminder_minutes,sheet_webhook_url=excluded.sheet_webhook_url,sheet_secret=excluded.sheet_secret,updated_at=excluded.updated_at',user.id,pushEnabled?'1':'0',String(reminderMinutes),sheetWebhookUrl||null,sheetWebhookUrl?(sheetSecret||existing?.secret||null):null,now());
@@ -160,21 +167,25 @@ export async function POST(req:NextRequest,{params}:Context) {
 }
 
 export async function DELETE(req:NextRequest,{params}:Context) {
+  if(cloudConfigured())return cloudDELETE(req,{params});
+  if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
   try {if(!sameOrigin(req)) return error('Invalid origin',403);const path=(await params).path.join('/');const user=await onlyMine();if(path==='push/subscribe'){const endpoint=req.nextUrl.searchParams.get('endpoint')||'';run('DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?',user.id,endpoint);return json({ok:true});}return error('Not found',404);}catch(e){return asError(e);}
 }
 
 export async function PUT(req:NextRequest,{params}:Context) {
+  if(cloudConfigured())return cloudDispatch(req);
+  if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
   try {
     const path=(await params).path.join('/');if(path!=='dispatch') return error('Not found',404);
     if(!process.env.CRON_SECRET||req.headers.get('authorization')!==`Bearer ${process.env.CRON_SECRET}`) return error('Unauthorized',401);
     if(!process.env.VAPID_PRIVATE_KEY||!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) return error('Web Push is not configured.');
     webpush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:admin@example.com',process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,process.env.VAPID_PRIVATE_KEY);
-    const due=rows<{id:string;userId:string;contactName:string;title:string}>(`SELECT a.id,a.user_id AS userId,c.name AS contactName,a.title FROM actions a JOIN contacts c ON c.id=a.contact_id JOIN user_settings s ON s.user_id=a.user_id WHERE a.status=? AND s.push_enabled=1 AND a.due_at IS NOT NULL AND datetime(a.due_at, printf('-%d minutes',s.reminder_minutes))<=datetime(?) AND a.notified_at IS NULL LIMIT 100`,'pending',now());
+    const due=rows<{id:string;userId:string;contactName:string|null;title:string}>(`SELECT a.id,a.user_id AS userId,c.name AS contactName,a.title FROM actions a LEFT JOIN contacts c ON c.id=a.contact_id JOIN user_settings s ON s.user_id=a.user_id WHERE a.status=? AND s.push_enabled=1 AND a.due_at IS NOT NULL AND datetime(a.due_at, printf('-%d minutes',s.reminder_minutes))<=datetime(?) AND a.notified_at IS NULL LIMIT 100`,'pending',now());
     let sent=0;
     for(const action of due) {
       const subscriptions=rows<{id:string;subscriptionJson:string}>('SELECT id,subscription_json AS subscriptionJson FROM push_subscriptions WHERE user_id=?',action.userId);
       let delivered=false;
-      for(const sub of subscriptions) {try{await webpush.sendNotification(JSON.parse(sub.subscriptionJson),JSON.stringify({title:`Follow up with ${action.contactName}`,body:action.title,url:'/',tag:action.id}));sent++;delivered=true;}catch(e){const status=(e as {statusCode?:number}).statusCode;if(status===404||status===410) run('DELETE FROM push_subscriptions WHERE id=?',sub.id);}}
+      for(const sub of subscriptions) {try{await webpush.sendNotification(JSON.parse(sub.subscriptionJson),JSON.stringify({title:action.contactName?`Follow up with ${action.contactName}`:'Follow-up reminder',body:action.title,url:'/',tag:action.id}));sent++;delivered=true;}catch(e){const status=(e as {statusCode?:number}).statusCode;if(status===404||status===410) run('DELETE FROM push_subscriptions WHERE id=?',sub.id);}}
       if(delivered) run('UPDATE actions SET notified_at=? WHERE id=?',now(),action.id);
     }
     return json({checked:due.length,sent});

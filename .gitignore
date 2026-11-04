@@ -5,3 +5,5 @@ data
 *.tsbuildinfo
 work/
 outputs/
+.vercel
+.env*

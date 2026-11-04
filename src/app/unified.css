@@ -279,3 +279,30 @@ a:hover,.text-link:hover,.back:hover,.sales-back:hover,.auth-switch button:hover
 .calendar-anytime{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:9px 14px;background:#f7fbf8}
 .calendar-anytime strong{font-size:11px;color:#5f8169;margin-right:5px}
 .calendar-anytime button{border:1px solid #d8e8db;border-radius:8px;background:#fff;color:#3f7354;font-size:11px;font-weight:700;padding:7px 9px}
+.review-due{grid-column:1/-1;display:grid;gap:8px;margin:4px 0 9px}
+.review-due-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #dbe9dd;border-radius:10px;background:#f6faf6;padding:9px 12px;font-size:13px;color:#315d42;font-weight:700}
+.review-due-summary button,.review-due-choices button{border:1px solid #cfe3d4;border-radius:8px;background:#fff;color:#2f7955;padding:8px 12px;font-weight:800;white-space:nowrap}
+.review-due-conflict{border:1px solid #e9c5a9;border-radius:11px;background:#fff7ef;padding:12px;color:#794521}
+.review-due-conflict strong{font-size:13px}.review-due-conflict p{font-size:12px;margin:4px 0 10px}
+.review-due-choices{display:flex;flex-wrap:wrap;gap:7px}
+.review-topic{display:inline-flex;margin:8px 0 0;padding:7px 10px;border-radius:8px;background:#edf6ed;color:#397a54;font-size:12px;font-weight:700}
+.followup-unlinked{font-size:11px;color:#87998d}
+@media(max-width:780px){
+  html{-webkit-text-size-adjust:100%}
+  input,select,textarea{font-size:16px!important}
+  button,input,select,textarea{touch-action:manipulation}
+  .content{padding:calc(12px + env(safe-area-inset-top)) 16px calc(100px + env(safe-area-inset-bottom))}
+  .auth-form-wrap{padding:calc(24px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));min-height:100dvh}
+  .mobile-nav{height:calc(68px + env(safe-area-inset-bottom));padding:0 8px env(safe-area-inset-bottom)}
+  .mobile-nav button{min-width:52px;min-height:48px}
+  .mobile-nav .mobile-capture{min-width:52px;min-height:52px;transform:translateY(-5px)}
+  .flow-page .back,.sales-back{min-height:44px}
+  .review-flow .draft-action{gap:7px}
+  .review-flow .draft-action input,.review-flow .draft-action select{min-height:44px}
+  .review-due-summary{font-size:12px}
+  .review-due-summary button,.review-due-choices button,.ist-date-shortcuts button,.ist-time-options button{min-height:44px}
+  .quick-followup-submit,.quick-date-trigger,.followup-summary-box,.followup-card-actions button,.manual-footer button{min-height:44px}
+  .followup-card-actions .followup-complete{min-height:44px}
+  .capture-flow .flow-submit{bottom:calc(76px + env(safe-area-inset-bottom))}
+  .capture-flow{padding-bottom:84px}
+}

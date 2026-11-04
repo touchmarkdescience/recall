@@ -52,12 +52,12 @@ function doPost(e) {
     if (payload.type === 'ping') {
       // A settings check: record only the event receipt.
     } else if (payload.type === 'interaction') {
-      if (!payload.interactionId || !payload.contactName) return reply_({ok:false,error:'Missing conversation fields'});
-      sheet_('Conversations',NOTES_HEADERS).appendRow([payload.eventId,payload.interactionId,payload.contactName,payload.transcript||'',payload.summary||'',payload.recordedAt||'',format_(payload.recordedAt)]);
+      if (!payload.interactionId) return reply_({ok:false,error:'Missing conversation fields'});
+      sheet_('Conversations',NOTES_HEADERS).appendRow([payload.eventId,payload.interactionId,payload.contactName||'',payload.transcript||'',payload.summary||'',payload.recordedAt||'',format_(payload.recordedAt)]);
     } else {
-      if (!payload.actionId || !payload.contactName) return reply_({ok:false,error:'Missing action fields'});
+      if (!payload.actionId) return reply_({ok:false,error:'Missing action fields'});
       const tab = sheet_('Actions',ACTION_HEADERS);
-      const values = [payload.actionId,payload.interactionId||'',payload.contactName,payload.kind||'',payload.title||'',format_(payload.createdAt),payload.dueAt&&payload.timeSpecified===0?format_(payload.dueAt).slice(0,10)+' Any time':format_(payload.dueAt),payload.status||'pending',format_(new Date().toISOString())];
+      const values = [payload.actionId,payload.interactionId||'',payload.contactName||'',payload.kind||'',payload.title||'',format_(payload.createdAt),payload.dueAt&&payload.timeSpecified===0?format_(payload.dueAt).slice(0,10)+' Any time':format_(payload.dueAt),payload.status||'pending',format_(new Date().toISOString())];
       const found = findRow_(tab,payload.actionId);
       if (found === -1) tab.appendRow(values); else tab.getRange(found,1,1,values.length).setValues([values]);
     }
@@ -76,7 +76,7 @@ function sendMorningDigest() {
   const tab = sheet_('Actions',ACTION_HEADERS);
   const values = tab.getLastRow() > 1 ? tab.getRange(2,1,tab.getLastRow()-1,ACTION_HEADERS.length).getDisplayValues() : [];
   const due = values.filter(row => row[7] === 'pending' && row[6].slice(0,10) === today);
-  const lines = due.map(row => `• ${row[6].slice(11)==='Any time'?'Any time':row[6].slice(11)+' IST'} — ${row[4]} (${row[2]})`);
+  const lines = due.map(row => `• ${row[6].slice(11)==='Any time'?'Any time':row[6].slice(11)+' IST'} — ${row[4]}${row[2]?' ('+row[2]+')':''}`);
   const body = due.length ? `Your actions for ${today}:\n\n${lines.join('\n')}\n\nOpen Recall for the conversation history.` : `Nothing is due today. You have time to meet your next prospect.\n\nOpen Recall to capture a new conversation.`;
   MailApp.sendEmail({to:recipient,subject:`Recall · ${due.length} action${due.length===1?'':'s'} for today`,body});
   props.setProperty('LAST_DIGEST_DATE',today);

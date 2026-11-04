@@ -24,9 +24,26 @@ export function db() {
       CREATE TABLE IF NOT EXISTS sheet_outbox (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, synced_at TEXT, error TEXT);
       CREATE INDEX IF NOT EXISTS sheet_outbox_pending ON sheet_outbox(user_id,synced_at);
     `);
-    const columns=database.prepare('PRAGMA table_info(actions)').all() as Array<{name:string}>;
+    const columns=database.prepare('PRAGMA table_info(actions)').all() as Array<{name:string;notnull:number}>;
     if(!columns.some(column=>column.name==='duration_minutes'))database.exec('ALTER TABLE actions ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 30');
     if(!columns.some(column=>column.name==='time_specified'))database.exec('ALTER TABLE actions ADD COLUMN time_specified INTEGER NOT NULL DEFAULT 1');
+    const interactionColumns=database.prepare('PRAGMA table_info(interactions)').all() as Array<{name:string;notnull:number}>;
+    if(columns.find(column=>column.name==='contact_id')?.notnull||interactionColumns.find(column=>column.name==='contact_id')?.notnull){
+      database.exec(`PRAGMA foreign_keys = OFF;
+        BEGIN;
+        CREATE TABLE interactions_new (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, contact_id TEXT REFERENCES contacts(id) ON DELETE CASCADE, transcript TEXT NOT NULL, summary TEXT NOT NULL, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE actions_new (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, contact_id TEXT REFERENCES contacts(id) ON DELETE CASCADE, interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL, kind TEXT NOT NULL, title TEXT NOT NULL, due_at TEXT, time_specified INTEGER NOT NULL DEFAULT 1, duration_minutes INTEGER NOT NULL DEFAULT 30, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, notified_at TEXT);
+        INSERT INTO interactions_new SELECT id,user_id,contact_id,transcript,summary,occurred_at,created_at FROM interactions;
+        INSERT INTO actions_new SELECT id,user_id,contact_id,interaction_id,kind,title,due_at,time_specified,duration_minutes,status,created_at,notified_at FROM actions;
+        DROP TABLE actions;
+        DROP TABLE interactions;
+        ALTER TABLE interactions_new RENAME TO interactions;
+        ALTER TABLE actions_new RENAME TO actions;
+        CREATE INDEX interactions_contact ON interactions(user_id,contact_id,occurred_at DESC);
+        CREATE INDEX actions_due ON actions(user_id,status,due_at);
+        COMMIT;
+        PRAGMA foreign_keys = ON;`);
+    }
     globalStore.recallStore = { db: database };
   }
   return globalStore.recallStore.db;

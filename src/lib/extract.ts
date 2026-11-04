@@ -1,11 +1,11 @@
 import * as chrono from 'chrono-node';
 import { DateTime } from 'luxon';
 
-export type DraftAction = { kind: 'follow_up'|'reminder'|'meeting'; title: string; dueAt: string | null; timeSpecified?: boolean; durationMinutes?: number };
-export type Extraction = { contactName: string; summary: string; actions: DraftAction[]; mode: 'AI'|'Local rules' };
+export type DraftAction = { kind: 'follow_up'|'reminder'|'meeting'; title: string; dueAt: string | null; timeSpecified?: boolean; durationMinutes?: number; timeChoices?: string[] };
+export type Extraction = { contactName: string; topic: string; summary: string; actions: DraftAction[]; mode: 'AI'|'Local rules' };
 const zone='Asia/Kolkata';
 export function parseIST(phrase: string, now=new Date()): string | null {
-  const lower=phrase.toLowerCase();
+  const lower=phrase.toLowerCase().replace(/\b([ap])\.m\./g,'$1m');
   const base=DateTime.fromJSDate(now,{zone});
   const hours=lower.match(/\bin\s+(\d+)\s*(hours?|hrs?|minutes?|mins?)\b/);
   if(hours){const count=Number(hours[1]);const unit=hours[2].startsWith('h')?'hours':'minutes';return base.plus({[unit]:count}).toUTC().toISO()}
@@ -32,23 +32,36 @@ export function parseIST(phrase: string, now=new Date()): string | null {
 }
 export function localExtract(transcript: string): Extraction {
   const clean=transcript.trim();
-  const match=clean.match(/\b(?:spoke (?:to|with)|talked (?:to|with)|met (?:with)?|called|call|meeting with|follow up with|about)\s+([A-Z][\p{L}'-]*(?:\s+[A-Z][\p{L}'-]*)?)/iu);
-  const contactName=match?.[1]?.replace(/[.,;!?]+$/,'').replace(/\s+(today|tomorrow|about|and|yesterday)$/i,'').trim() || '';
-  const segments=clean.split(/(?:[.;]|\s+and\s+(?=(?:call|follow|remind|meet|schedule|reschedule|send|check)\b))/i).map(s=>s.trim()).filter(Boolean);
+  const match=clean.match(/\b(?:spoke (?:to|with)|talked (?:to|with)|met(?: with)?|called|call|meeting(?: with)?|meet with|follow up with)\s+([\p{L}'-]+)/iu);
+  const trailing=match&&match.index!==undefined?clean.slice(match.index+match[0].length).match(/^\s+([A-Z][\p{L}'-]*)/u)?.[1]:undefined;
+  const candidate=[match?.[1],trailing].filter(Boolean).join(' ').replace(/[.,;!?]+$/,'').trim();
+  const contactName=candidate&&candidate[0]===candidate[0].toLocaleUpperCase()&&!/^(today|tomorrow|client|customer|prospect|team|someone|anyone)$/i.test(candidate)?candidate:'';
+  const topic=clean.match(/\babout\s+(.+?)(?=\s*(?:[;,.]|\bremind\b|\bor\b|$))/i)?.[1]?.trim()||'';
+  const spokenTimes=[...clean.matchAll(/\b(?:at|by|around|is)\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?=\s|$|[.;!?—-])/gi)].map(m=>`${m[1]}:${m[2]||'00'} ${m[3].replace(/\./g,'').toUpperCase()}`);
+  const conflicting=/\b(?:or|versus|vs\.?|instead)\b/i.test(clean)&&new Set(spokenTimes).size>1;
+  const segments=conflicting?[clean]:clean.split(/(?:[.;]|\s+and\s+(?=(?:call|follow|remind|meet|schedule|reschedule|send|check)\b))/i).map(s=>s.trim()).filter(Boolean);
   const actions: DraftAction[]=[];
   for(const segment of segments) {
-    const kind=/\b(meet|meeting|schedule|reschedule)\b/i.test(segment)?'meeting':/\b(remind|reminder)\b/i.test(segment)?'reminder':/\b(follow up|call|send|check back|reach out)\b/i.test(segment)?'follow_up':null;
+    const kind=/\b(meet|meeting|schedule|reschedule)\b/i.test(segment)?'meeting':/\b(remind|reminder)\b/i.test(segment)?'reminder':/\b(follow up|call|send|share|submit|deliver|prepare|update|finish|check back|reach out|get back)\b/i.test(segment)?'follow_up':null;
     if(!kind) continue;
     if(/\b(?:spoke|talked|called|met)\b/i.test(segment) && !/\b(?:need to|should|will|please|next|again|tomorrow|today|in \d+ days?|at \d|on \w+day)\b/i.test(segment)) continue;
-    actions.push({kind,title:segment.charAt(0).toUpperCase()+segment.slice(1),dueAt:parseIST(segment)});
+    const dayContext=segment.match(/\b(?:day after tomorrow|tomorrow|today|in \d+ days?|on \w+day)\b/i)?.[0]||'';
+    const choices=conflicting?spokenTimes.map(time=>parseIST(`${dayContext} at ${time}`)).filter((value):value is string=>!!value):[];
+    actions.push({kind,title:segment.charAt(0).toUpperCase()+segment.slice(1),dueAt:conflicting?null:parseIST(segment),timeSpecified:spokenTimes.length>0,timeChoices:choices.length>1?choices:undefined});
   }
-  return {contactName,summary:clean,actions,mode:'Local rules'};
+  return {contactName,topic,summary:clean,actions,mode:'Local rules'};
 }
 export async function extract(transcript: string): Promise<Extraction> {
   if(!process.env.OPENAI_API_KEY) return localExtract(transcript);
-  const response=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4.1-mini',max_completion_tokens:700,response_format:{type:'json_object'},messages:[{role:'system',content:`Return only JSON: {"contactName":"","summary":"","actions":[]}. Each explicit next step has kind (follow_up, reminder, meeting), short title, and dueAt (UTC ISO or null). Use only facts stated in the note. Do not invent a person, action, date, time, or duration. A discussion without an explicit next step has actions:[]. Keep the summary to one sentence. Interpret relative dates in Asia/Kolkata; now is ${DateTime.now().setZone(zone).toISO()}. Preserve ambiguity with dueAt:null. Limit actions to 10.`},{role:'user',content:transcript}]})});
+  const response=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4.1-mini',max_completion_tokens:700,response_format:{type:'json_object'},messages:[{role:'system',content:`Return only JSON: {"contactName":"","topic":"","summary":"","actions":[]}. Each explicit next step has kind (follow_up, reminder, meeting), short title, dueAt (UTC ISO or null), and timeChoices (UTC ISO array only for conflicting spoken times). A person's name is optional. Extract it only from a person cue such as "meeting Sujay"; a topic after "about" is not a person. Use only stated facts. Do not invent a person, action, date, time, or duration. A discussion without an explicit next step has actions:[]. Keep the summary to one sentence. Interpret relative dates in Asia/Kolkata; now is ${DateTime.now().setZone(zone).toISO()}. For alternatives such as "1 pm or 4 pm", use dueAt:null and timeChoices with both times. Limit actions to 10.`},{role:'user',content:transcript}]})});
   if(!response.ok) throw new Error(`AI request failed (${response.status})`);
   const data=await response.json();
   const parsed=JSON.parse(data.choices?.[0]?.message?.content||'{}');
-  return {contactName:String(parsed.contactName||'').slice(0,120),summary:String(parsed.summary||transcript).slice(0,1000),actions:Array.isArray(parsed.actions)?parsed.actions.slice(0,10).filter((a:DraftAction)=>a&&['follow_up','reminder','meeting'].includes(a.kind)&&typeof a.title==='string'&&a.title.trim()).map((a:DraftAction)=>({kind:a.kind,title:a.title.trim().slice(0,500),dueAt:a.dueAt&&DateTime.fromISO(a.dueAt).isValid?a.dueAt:null})):[],mode:'AI'};
+  const result={contactName:String(parsed.contactName||'').slice(0,120),topic:String(parsed.topic||'').slice(0,200),summary:String(parsed.summary||transcript).slice(0,1000),actions:Array.isArray(parsed.actions)?parsed.actions.slice(0,10).filter((a:DraftAction)=>a&&['follow_up','reminder','meeting'].includes(a.kind)&&typeof a.title==='string'&&a.title.trim()).map((a:DraftAction)=>({kind:a.kind,title:a.title.trim().slice(0,500),dueAt:a.dueAt&&DateTime.fromISO(a.dueAt).isValid?a.dueAt:null,timeSpecified:a.timeSpecified,timeChoices:Array.isArray(a.timeChoices)?a.timeChoices.filter(x=>typeof x==='string'&&DateTime.fromISO(x).isValid).slice(0,4):undefined})):[],mode:'AI' as const};
+  const guard=localExtract(transcript);
+  if(guard.contactName)result.contactName=guard.contactName;
+  if(guard.topic)result.topic=guard.topic;
+  if(result.contactName&&result.topic&&result.contactName.toLocaleLowerCase()===result.topic.toLocaleLowerCase())result.contactName='';
+  if(guard.actions[0]?.timeChoices?.length){result.actions=result.actions.map((a:DraftAction)=>({...a,dueAt:null,timeChoices:guard.actions[0].timeChoices}));}
+  return result;
 }
