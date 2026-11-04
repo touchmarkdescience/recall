@@ -279,6 +279,9 @@ a:hover,.text-link:hover,.back:hover,.sales-back:hover,.auth-switch button:hover
 .calendar-anytime{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:9px 14px;background:#f7fbf8}
 .calendar-anytime strong{font-size:11px;color:#5f8169;margin-right:5px}
 .calendar-anytime button{border:1px solid #d8e8db;border-radius:8px;background:#fff;color:#3f7354;font-size:11px;font-weight:700;padding:7px 9px}
+.install-banner{position:fixed;right:18px;bottom:18px;z-index:50;display:flex;align-items:center;gap:12px;max-width:min(360px,calc(100vw - 32px));padding:10px 12px;border:1px solid #d6e7d9;border-radius:13px;background:#fff;color:#284d3b;box-shadow:0 8px 30px #17382a24;font-size:13px;font-weight:700}
+.install-banner button{flex:none;min-height:44px;padding:8px 12px;border:0;border-radius:9px;background:#174c43;color:#fff;font-size:13px;font-weight:800}
+@media(max-width:780px){.install-banner{left:16px;right:16px;bottom:calc(82px + env(safe-area-inset-bottom));max-width:none;justify-content:space-between}}
 .review-due{grid-column:1/-1;display:grid;gap:8px;margin:4px 0 9px}
 .review-due-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #dbe9dd;border-radius:10px;background:#f6faf6;padding:9px 12px;font-size:13px;color:#315d42;font-weight:700}
 .review-due-summary button,.review-due-choices button{border:1px solid #cfe3d4;border-radius:8px;background:#fff;color:#2f7955;padding:8px 12px;font-weight:800;white-space:nowrap}
