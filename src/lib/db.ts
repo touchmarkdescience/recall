@@ -20,10 +20,12 @@ export function db() {
       CREATE TABLE IF NOT EXISTS actions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE, interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL, kind TEXT NOT NULL, title TEXT NOT NULL, due_at TEXT, time_specified INTEGER NOT NULL DEFAULT 1, duration_minutes INTEGER NOT NULL DEFAULT 30, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, notified_at TEXT);
       CREATE INDEX IF NOT EXISTS actions_due ON actions(user_id,status,due_at);
       CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, endpoint TEXT UNIQUE NOT NULL, subscription_json TEXT NOT NULL, created_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, push_enabled INTEGER NOT NULL DEFAULT 1, reminder_minutes INTEGER NOT NULL DEFAULT 30, sheet_webhook_url TEXT, sheet_secret TEXT, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, push_enabled INTEGER NOT NULL DEFAULT 1, reminder_minutes INTEGER NOT NULL DEFAULT 30, sheet_webhook_url TEXT, sheet_secret TEXT, transcription_provider TEXT, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sheet_outbox (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, synced_at TEXT, error TEXT);
       CREATE INDEX IF NOT EXISTS sheet_outbox_pending ON sheet_outbox(user_id,synced_at);
     `);
+    const settingsColumns=database.prepare('PRAGMA table_info(user_settings)').all() as Array<{name:string}>;
+    if(!settingsColumns.some(column=>column.name==='transcription_provider'))database.exec('ALTER TABLE user_settings ADD COLUMN transcription_provider TEXT');
     const columns=database.prepare('PRAGMA table_info(actions)').all() as Array<{name:string;notnull:number}>;
     if(!columns.some(column=>column.name==='duration_minutes'))database.exec('ALTER TABLE actions ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 30');
     if(!columns.some(column=>column.name==='time_specified'))database.exec('ALTER TABLE actions ADD COLUMN time_specified INTEGER NOT NULL DEFAULT 1');

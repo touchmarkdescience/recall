@@ -45,13 +45,13 @@ export default function VoiceCapture({ownerId,language,transcriptionConfigured,p
   function startSpeechPreview(){
     const browser=window as SpeechWindow;
     const Recognition=browser.SpeechRecognition||browser.webkitSpeechRecognition;
-    if(!Recognition){setStatus('Recording. Live text is unavailable here; Gemini transcribes automatically when you stop.');return}
+    if(!Recognition){setStatus(`Recording. Live text is unavailable here; ${provider} transcribes automatically when you stop.`);return}
     try{
       const preview=new Recognition();preview.continuous=true;preview.interimResults=true;preview.lang=languageRef.current==='ta'?'ta-IN':'en-IN';
       preview.onresult=event=>{if(actualState()!=='recording')return;const text=Array.from(event.results).map(result=>result[0]?.transcript||'').join(' ').trim();if(text)onLiveTranscript(text)};
-      preview.onerror=()=>{speech.current=null;if(actualState()==='recording')setStatus('Recording. Gemini will transcribe the saved audio when you stop.')};
+      preview.onerror=()=>{speech.current=null;if(actualState()==='recording')setStatus(`Recording. ${provider} will transcribe the saved audio when you stop.`)};
       speech.current=preview;preview.start();
-    }catch{speech.current=null;setStatus('Recording. Gemini will transcribe the saved audio when you stop.')}
+    }catch{speech.current=null;setStatus(`Recording. ${provider} will transcribe the saved audio when you stop.`)}
   }
 
   function stopMeter(){
@@ -89,7 +89,7 @@ export default function VoiceCapture({ownerId,language,transcriptionConfigured,p
           final=String(result.transcript||'').trim();
           if(!final)throw new Error('No speech was heard. Please try again or type the note.');
           break;
-        }catch(error){if(attempt===1||(error instanceof Error&&(error as Error & {retryable?:boolean}).retryable===false)||error instanceof SyntaxError||error instanceof Error&&/No speech was heard/.test(error.message))throw error;setStatus('Transcription interrupted. Retrying saved audio…')}
+        }catch(error){if(attempt===1||(error instanceof Error&&(error as Error & {retryable?:boolean}).retryable===false)||error instanceof SyntaxError||error instanceof Error&&/No speech was heard/.test(error.message))throw error;setStatus('Transcription interrupted. Retrying saved audio…');await new Promise(resolve=>setTimeout(resolve,700))}
       }
       retryClip.current='';
       if(mounted.current)onTranscript(final);
@@ -146,7 +146,7 @@ export default function VoiceCapture({ownerId,language,transcriptionConfigured,p
   }
   return <div className={`capture-card voice-capture ${recording?'is-recording':''}`}>
     <button className={`mic-button ${recording?'recording':''}`} onClick={recording?stop:start} disabled={working} aria-label={recording?'Stop recording':'Start recording'}>{recording?<Square size={27} fill="currentColor"/>:<Mic size={31}/>}</button>
-    <strong>{recording?`Recording · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`:working?'Processing your recording…':'Record a voice note'}</strong>
+    <strong>{recording?`Recording · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} / 1:00`:working?'Processing your recording…':'Record a voice note · 0:00 / 1:00'}</strong>
     <span role="status">{status}</span>
     <div className="live-wave" aria-label={recording?'Live microphone level':'Microphone is idle'}>{Array.from({length:BAR_COUNT},(_,i)=><span key={i} ref={element=>{bars.current[i]=element}}/>)}</div>
     {transcriptionConfigured&&<small className="voice-provider">Saved on device first · Final transcript by {provider}</small>}

@@ -59,8 +59,10 @@ create table if not exists public.recall_user_settings (
   reminder_minutes integer not null default 30,
   sheet_webhook_url text,
   sheet_secret text,
+  transcription_provider text,
   updated_at timestamptz not null default now()
 );
+alter table public.recall_user_settings add column if not exists transcription_provider text;
 create table if not exists public.recall_sheet_outbox (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.recall_users(id) on delete cascade,

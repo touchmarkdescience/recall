@@ -7,6 +7,7 @@ import { clearSession, currentUser, passwordHash, passwordValid, setSession } fr
 import { cloud, dataOrThrow } from './cloud';
 import { enqueueCloudSheetEvent, flushCloudSheetOutbox, getCloudSettings } from './cloudSettings';
 import { extract, type DraftAction } from './extract';
+import { defaultSttProvider, sttConfigured, sttLabel, type SttProvider } from './stt';
 
 type Context={params:Promise<{path:string[]}>};
 type Contact={id:string;name:string;phone:string|null;created_at:string};
@@ -27,7 +28,7 @@ async function contactsFor(userId:string){return dataOrThrow(await cloud().from(
 export async function cloudGET(req:NextRequest,{params}:Context){
   try{
     const path=(await params).path.join('/');
-    if(path==='me')return response({user:await currentUser(),aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),transcriptionProvider:process.env.GEMINI_API_KEY?'Google Gemini':process.env.OPENAI_API_KEY?'OpenAI':'None',pushConfigured:Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''});
+    if(path==='me'){const user=await currentUser(),provider=user?(await getCloudSettings(user.id)).transcriptionProvider:defaultSttProvider();return response({user,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
     const user=await onlyMine();
     if(path==='settings')return response(await getCloudSettings(user.id));
     if(path==='dashboard'){
@@ -129,12 +130,14 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
     if(path==='settings'){
       const pushEnabled=body.pushEnabled===true,reminderMinutes=Number(body.reminderMinutes),sheetWebhookUrl=clean(body.sheetWebhookUrl),sheetSecret=clean(body.sheetSecret);
       if(![0,15,30,60,1440].includes(reminderMinutes))return error('Choose a reminder time from the list.');
+      const transcriptionProvider=(body.transcriptionProvider??(await getCloudSettings(user.id)).transcriptionProvider) as SttProvider;
+      if(!['groq','gemini'].includes(transcriptionProvider))return error('Choose a transcription provider from the list.');
       if(sheetWebhookUrl){try{const url=new URL(sheetWebhookUrl);if(url.protocol!=='https:'||!['script.google.com','script.googleusercontent.com'].includes(url.hostname))return error('Use an Apps Script web app URL.')}catch{return error('Enter a valid Apps Script URL.')}}
       const settings=await getCloudSettings(user.id);
       if(sheetWebhookUrl&&sheetSecret.length<16&&!settings.sheetConnected)return error('Use a sheet secret of at least 16 characters.');
       const oldResult=await cloud().from('recall_user_settings').select('sheet_secret').eq('user_id',user.id).single();
       if(oldResult.error)throw new Error(oldResult.error.message);
-      dataOrThrow(await cloud().from('recall_user_settings').update({push_enabled:pushEnabled,reminder_minutes:reminderMinutes,sheet_webhook_url:sheetWebhookUrl||null,sheet_secret:sheetWebhookUrl?sheetSecret||oldResult.data?.sheet_secret:null,updated_at:now()}).eq('user_id',user.id).select('user_id'));
+      dataOrThrow(await cloud().from('recall_user_settings').update({push_enabled:pushEnabled,reminder_minutes:reminderMinutes,sheet_webhook_url:sheetWebhookUrl||null,sheet_secret:sheetWebhookUrl?sheetSecret||oldResult.data?.sheet_secret:null,transcription_provider:transcriptionProvider,updated_at:now()}).eq('user_id',user.id).select('user_id'));
       if(sheetWebhookUrl)await enqueueCloudSheetEvent(user.id,{type:'ping'});
       const sync=sheetWebhookUrl?await flushCloudSheetOutbox(user.id):{sent:0};
       return response({...await getCloudSettings(user.id),synced:sync.sent});

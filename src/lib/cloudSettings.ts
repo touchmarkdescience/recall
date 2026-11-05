@@ -2,8 +2,9 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { cloud, dataOrThrow } from './cloud';
 import type { Settings } from './settings';
+import { sttProvider } from './stt';
 
-type Stored={push_enabled:boolean;reminder_minutes:number;sheet_webhook_url:string|null;sheet_secret:string|null};
+type Stored={push_enabled:boolean;reminder_minutes:number;sheet_webhook_url:string|null;sheet_secret:string|null;transcription_provider:string|null};
 
 export async function ensureCloudSettings(userId:string) {
   dataOrThrow(await cloud().from('recall_user_settings').upsert({user_id:userId},{onConflict:'user_id',ignoreDuplicates:true}).select('user_id'));
@@ -11,10 +12,10 @@ export async function ensureCloudSettings(userId:string) {
 
 export async function getCloudSettings(userId:string):Promise<Settings> {
   await ensureCloudSettings(userId);
-  const s=dataOrThrow(await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret').eq('user_id',userId).single()) as Stored;
+  const s=dataOrThrow(await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider').eq('user_id',userId).single()) as Stored;
   const pending=await cloud().from('recall_sheet_outbox').select('id',{count:'exact',head:true}).eq('user_id',userId).is('synced_at',null);
   if(pending.error)throw new Error(pending.error.message);
-  return {pushEnabled:s.push_enabled,reminderMinutes:s.reminder_minutes,sheetWebhookUrl:s.sheet_webhook_url||'',sheetConnected:Boolean(s.sheet_webhook_url&&s.sheet_secret),syncPending:pending.count||0};
+  return {pushEnabled:s.push_enabled,reminderMinutes:s.reminder_minutes,sheetWebhookUrl:s.sheet_webhook_url||'',sheetConnected:Boolean(s.sheet_webhook_url&&s.sheet_secret),syncPending:pending.count||0,transcriptionProvider:sttProvider(s.transcription_provider)};
 }
 
 export async function enqueueCloudSheetEvent(userId:string,payload:Record<string,unknown>) {

@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { row, rows, run } from './db';
+import { sttProvider, type SttProvider } from './stt';
 
-export type Settings={pushEnabled:boolean;reminderMinutes:number;sheetWebhookUrl:string;sheetConnected:boolean;syncPending:number};
-type Stored={push_enabled:number;reminder_minutes:number;sheet_webhook_url:string|null;sheet_secret:string|null};
+export type Settings={pushEnabled:boolean;reminderMinutes:number;sheetWebhookUrl:string;sheetConnected:boolean;syncPending:number;transcriptionProvider:SttProvider};
+type Stored={push_enabled:number;reminder_minutes:number;sheet_webhook_url:string|null;sheet_secret:string|null;transcription_provider:string|null};
 export function ensureSettings(userId:string){run('INSERT OR IGNORE INTO user_settings(user_id,updated_at) VALUES(?,?)',userId,new Date().toISOString());}
 export function getSettings(userId:string):Settings{
   ensureSettings(userId);
-  const s=row<Stored>('SELECT push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret FROM user_settings WHERE user_id=?',userId)!;
+  const s=row<Stored>('SELECT push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider FROM user_settings WHERE user_id=?',userId)!;
   const pending=row<{count:number}>('SELECT COUNT(*) AS count FROM sheet_outbox WHERE user_id=? AND synced_at IS NULL',userId)?.count||0;
-  return {pushEnabled:!!s.push_enabled,reminderMinutes:s.reminder_minutes,sheetWebhookUrl:s.sheet_webhook_url||'',sheetConnected:!!(s.sheet_webhook_url&&s.sheet_secret),syncPending:pending};
+  return {pushEnabled:!!s.push_enabled,reminderMinutes:s.reminder_minutes,sheetWebhookUrl:s.sheet_webhook_url||'',sheetConnected:!!(s.sheet_webhook_url&&s.sheet_secret),syncPending:pending,transcriptionProvider:sttProvider(s.transcription_provider)};
 }
 export function enqueueSheetEvent(userId:string,payload:Record<string,unknown>){run('INSERT INTO sheet_outbox(id,user_id,payload_json,created_at) VALUES(?,?,?,?)',randomUUID(),userId,JSON.stringify(payload),new Date().toISOString());}
 export async function flushSheetOutbox(userId:string){

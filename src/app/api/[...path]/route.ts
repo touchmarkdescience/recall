@@ -8,6 +8,7 @@ import { extract, type DraftAction } from '@/lib/extract';
 import { enqueueSheetEvent, flushSheetOutbox, getSettings } from '@/lib/settings';
 import { cloudConfigured } from '@/lib/cloud';
 import { cloudGET, cloudPOST, cloudDELETE, cloudDispatch } from '@/lib/cloudRoutes';
+import { defaultSttProvider, sttConfigured, sttLabel, type SttProvider } from '@/lib/stt';
 
 export const runtime='nodejs';
 type Context={params:Promise<{path:string[]}>};
@@ -24,7 +25,7 @@ export async function GET(req:NextRequest,{params}:Context) {
   if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
   try {
     const path=(await params).path.join('/');
-    if(path==='me') return json({user:await currentUser(),aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:!!(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),transcriptionProvider:process.env.GEMINI_API_KEY?'Google Gemini':process.env.OPENAI_API_KEY?'OpenAI':'None',pushConfigured:!!(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''});
+    if(path==='me') {const user=await currentUser(),provider=user?getSettings(user.id).transcriptionProvider:defaultSttProvider();return json({user,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:!!(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
     const user=await onlyMine();
     if(path==='settings') return json(getSettings(user.id));
     if(path==='dashboard') {
@@ -128,12 +129,14 @@ export async function POST(req:NextRequest,{params}:Context) {
       const pushEnabled=body.pushEnabled===true;
       const reminderMinutes=Number(body.reminderMinutes);
       if(![0,15,30,60,1440].includes(reminderMinutes))return error('Choose a reminder time from the list.');
+      const transcriptionProvider=(body.transcriptionProvider??getSettings(user.id).transcriptionProvider) as SttProvider;
+      if(!['groq','gemini'].includes(transcriptionProvider))return error('Choose a transcription provider from the list.');
       const sheetWebhookUrl=clean(body.sheetWebhookUrl);
       const sheetSecret=clean(body.sheetSecret);
       if(sheetWebhookUrl){try{const u=new URL(sheetWebhookUrl);const local=['127.0.0.1','localhost'].includes(u.hostname);if(!(u.protocol==='https:'&&['script.google.com','script.googleusercontent.com'].includes(u.hostname))&&!local)return error('Use an Apps Script web app URL.');}catch{return error('Enter a valid Apps Script URL.')}}
       if(sheetWebhookUrl&&sheetSecret.length<16&&!getSettings(user.id).sheetConnected)return error('Use a sheet secret of at least 16 characters.');
       const existing=row<{secret:string|null}>('SELECT sheet_secret AS secret FROM user_settings WHERE user_id=?',user.id);
-      run('INSERT INTO user_settings(user_id,push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET push_enabled=excluded.push_enabled,reminder_minutes=excluded.reminder_minutes,sheet_webhook_url=excluded.sheet_webhook_url,sheet_secret=excluded.sheet_secret,updated_at=excluded.updated_at',user.id,pushEnabled?'1':'0',String(reminderMinutes),sheetWebhookUrl||null,sheetWebhookUrl?(sheetSecret||existing?.secret||null):null,now());
+      run('INSERT INTO user_settings(user_id,push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET push_enabled=excluded.push_enabled,reminder_minutes=excluded.reminder_minutes,sheet_webhook_url=excluded.sheet_webhook_url,sheet_secret=excluded.sheet_secret,transcription_provider=excluded.transcription_provider,updated_at=excluded.updated_at',user.id,pushEnabled?'1':'0',String(reminderMinutes),sheetWebhookUrl||null,sheetWebhookUrl?(sheetSecret||existing?.secret||null):null,transcriptionProvider,now());
       if(sheetWebhookUrl)enqueueSheetEvent(user.id,{type:'ping'});
       const sync=sheetWebhookUrl?await flushSheetOutbox(user.id):{sent:0,pending:getSettings(user.id).syncPending};
       return json({...getSettings(user.id),synced:sync.sent});
