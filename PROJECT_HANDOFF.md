@@ -1,5 +1,7 @@
 # Recall — development handoff
 
+> For the latest source commit, Guest follow-up migration, and account transfer steps, read [ACCOUNT_HANDOFF.md](ACCOUNT_HANDOFF.md) first. The historical deployment details below may be outdated.
+
 **Status:** Live, open for testing as of 4 November 2026 (IST). This document describes the implementation in `mjsan-dosclub/recall` at commit `130d4d9` and the deployment completed from that code. It is intended for developers and testers; it contains no secret values.
 
 ## 1. Purpose and users

@@ -30,7 +30,9 @@ export async function flushCloudSheetOutbox(userId:string) {
   let sent=0;
   for(const job of jobs) {
     try {
-      const response=await fetch(config.sheet_webhook_url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({secret:config.sheet_secret,eventId:job.id,...job.payload_json}),signal:AbortSignal.timeout(10000)});
+      const payload=job.payload_json as Record<string,unknown>;
+      const sheetPayload={...payload,...((payload.type==='action'||payload.type==='interaction')&&!payload.contactName?{contactName:'Guest'}:{})};
+      const response=await fetch(config.sheet_webhook_url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({secret:config.sheet_secret,eventId:job.id,...sheetPayload}),signal:AbortSignal.timeout(10000)});
       const result=await response.json();
       if(!response.ok||result?.ok!==true)throw new Error(String(result?.error||`Sheet response ${response.status}`));
       dataOrThrow(await cloud().from('recall_sheet_outbox').update({synced_at:new Date().toISOString(),error:null}).eq('id',job.id).eq('user_id',userId).select('id'));

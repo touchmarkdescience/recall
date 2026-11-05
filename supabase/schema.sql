@@ -43,7 +43,8 @@ create table if not exists public.recall_actions (
   duration_minutes integer not null default 30,
   status text not null default 'pending' check (status in ('pending','done','archived','removed')),
   created_at timestamptz not null default now(),
-  notified_at timestamptz
+  notified_at timestamptz,
+  reminder_minutes integer not null default 0 check (reminder_minutes in (0,10,30,60,1440))
 );
 create index if not exists recall_actions_due on public.recall_actions(user_id,status,due_at);
 create table if not exists public.recall_push_subscriptions (
@@ -122,8 +123,8 @@ begin
     v_time_specified := case when v_action->>'timeSpecified'='false' then 0 else 1 end;
     v_duration := coalesce((v_action->>'durationMinutes')::integer,30);
     v_due_at := nullif(v_action->>'dueAt','')::timestamptz;
-    insert into public.recall_actions(id,user_id,contact_id,interaction_id,kind,title,due_at,time_specified,duration_minutes,status,created_at)
-      values(v_action_id,p_user_id,v_contact_id,v_interaction_id,v_action->>'kind',trim(v_action->>'title'),v_due_at,v_time_specified,v_duration,'pending',v_created_at);
+    insert into public.recall_actions(id,user_id,contact_id,interaction_id,kind,title,due_at,time_specified,duration_minutes,reminder_minutes,status,created_at)
+      values(v_action_id,p_user_id,v_contact_id,v_interaction_id,v_action->>'kind',trim(v_action->>'title'),v_due_at,v_time_specified,v_duration,coalesce((v_action->>'reminderMinutes')::integer,0),'pending',v_created_at);
     insert into public.recall_sheet_outbox(id,user_id,payload_json,created_at)
       values(gen_random_uuid(),p_user_id,jsonb_build_object('type','action','actionId',v_action_id,'interactionId',v_interaction_id,'contactId',v_contact_id,'contactName',v_contact_name,'kind',v_action->>'kind','title',trim(v_action->>'title'),'dueAt',v_due_at,'timeSpecified',v_time_specified,'durationMinutes',v_duration,'status','pending','createdAt',v_created_at),v_created_at);
   end loop;

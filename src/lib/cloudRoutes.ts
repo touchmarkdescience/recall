@@ -1,3 +1,5 @@
+import { validReminder, reminderAt } from './reminders';
+import { safeFailure } from './serverErrors';
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
@@ -11,18 +13,18 @@ import { defaultSttProvider, sttConfigured, sttLabel, type SttProvider } from '.
 
 type Context={params:Promise<{path:string[]}>};
 type Contact={id:string;name:string;phone:string|null;created_at:string};
-type Action={id:string;user_id:string;contact_id:string|null;interaction_id:string|null;kind:string;title:string;due_at:string|null;time_specified:number;duration_minutes:number;status:string;created_at:string;notified_at:string|null};
+type Action={id:string;user_id:string;contact_id:string|null;interaction_id:string|null;kind:string;title:string;due_at:string|null;time_specified:number;duration_minutes:number;reminder_minutes:number;status:string;created_at:string;notified_at:string|null};
 type Interaction={id:string;contact_id:string|null;summary:string;transcript:string;occurred_at:string;created_at:string};
 const response=(data:unknown,status=200)=>NextResponse.json(data,{status});
 const error=(message:string,status=400)=>response({error:message},status);
 const now=()=>new Date().toISOString();
 const clean=(value:unknown)=>String(value??'').trim();
-const fail=(value:unknown)=>error(value instanceof Error?value.message:'Request failed',value instanceof Error&&value.message==='Unauthorized'?401:400);
+const fail=(value:unknown)=>value instanceof Error&&value.message==='Unauthorized'?error('Unauthorized',401):safeFailure(value,'/api/[...path]');
 const originOkay=(req:NextRequest)=>{const origin=req.headers.get('origin');if(!origin)return true;try{return new URL(origin).host===req.headers.get('host')}catch{return false}};
 async function onlyMine(){const user=await currentUser();if(!user)throw new Error('Unauthorized');return user}
 const contactView=(c:Contact)=>({id:c.id,name:c.name,phone:c.phone,createdAt:c.created_at});
 const interactionView=(i:Interaction,c:Contact|undefined)=>({id:i.id,contactId:i.contact_id||'',contactName:c?.name||'',summary:i.summary,transcript:i.transcript,occurredAt:i.occurred_at});
-const actionView=(a:Action,c:Contact|undefined,summary?:string)=>({id:a.id,contactId:a.contact_id||'',contactName:c?.name||'',kind:a.kind,title:a.title,dueAt:a.due_at,timeSpecified:a.time_specified,durationMinutes:a.duration_minutes,status:a.status,createdAt:a.created_at,...(summary===undefined?{}:{conversationSummary:summary})});
+const actionView=(a:Action,c:Contact|undefined,summary?:string)=>({id:a.id,contactId:a.contact_id||'',contactName:c?.name||'',kind:a.kind,title:a.title,dueAt:a.due_at,timeSpecified:a.time_specified,durationMinutes:a.duration_minutes,reminderMinutes:a.reminder_minutes,status:a.status,createdAt:a.created_at,...(summary===undefined?{}:{conversationSummary:summary})});
 async function contactsFor(userId:string){return dataOrThrow(await cloud().from('recall_contacts').select('id,name,phone,created_at').eq('user_id',userId).order('name')) as Contact[]}
 
 export async function cloudGET(req:NextRequest,{params}:Context){
@@ -95,7 +97,9 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       const occurredAt=body.occurredAt===undefined?now():clean(body.occurredAt);
       if(!DateTime.fromISO(occurredAt).isValid||DateTime.fromISO(occurredAt).toMillis()>Date.now())return error('Conversation time cannot be in the future. Choose when you spoke in IST.');
       const actions=Array.isArray(body.actions)?body.actions as DraftAction[]:[];
+      if(actions.some(action=>!validReminder(action.reminderMinutes??0)))return error('Choose a reminder offset from the list.');
       if(actions.length>20)return error('Too many actions in one note.');
+      if(actions.some(action=>action.timeSpecified===true&&!action.dueAt))return error('Set the spoken time before saving.');
       if(actions.some(action=>(action.timeChoices?.length||0)>1))return error('Choose one of the spoken times before saving.');
       for(const action of actions)if(!['follow_up','reminder','meeting'].includes(action.kind)||!clean(action.title)||action.title.length>500||(action.dueAt&&!DateTime.fromISO(action.dueAt).isValid)||!Number.isInteger(action.durationMinutes??30)||(action.durationMinutes??30)<15||(action.durationMinutes??30)>480)return error('Review the action titles, dates, and durations.');
       if(actions.some(action=>action.dueAt&&action.timeSpecified!==false&&DateTime.fromISO(action.dueAt).toMillis()<Date.now()))return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
@@ -118,10 +122,12 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       if(!current.data)return error('Action not found',404);
       const old=current.data as Action;
       const title=body.title===undefined?old.title:clean(body.title),kind=body.kind===undefined?old.kind:clean(body.kind),dueAt=body.dueAt===undefined?old.due_at:body.dueAt||null;
+      const reminderMinutes=body.reminderMinutes===undefined?old.reminder_minutes:body.reminderMinutes;
+      if(!validReminder(reminderMinutes))return error('Choose a reminder offset from the list.');
       const timeSpecified=body.timeSpecified===undefined?old.time_specified:body.timeSpecified===false?0:1;
       if(!title||title.length>500||!['follow_up','reminder','meeting'].includes(kind)||(dueAt&&!DateTime.fromISO(dueAt).isValid))return error('Enter a valid title, type and date.');
       if(body.dueAt!==undefined&&dueAt&&timeSpecified!==0&&DateTime.fromISO(dueAt).toMillis()<Date.now())return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
-      const changed=dataOrThrow(await cloud().from('recall_actions').update({status,title,kind,due_at:dueAt,time_specified:timeSpecified,notified_at:dueAt!==old.due_at||timeSpecified!==old.time_specified||status!==old.status?null:old.notified_at}).eq('id',id).eq('user_id',user.id).select('id'));
+      const changed=dataOrThrow(await cloud().from('recall_actions').update({status,title,kind,due_at:dueAt,time_specified:timeSpecified,reminder_minutes:reminderMinutes,notified_at:dueAt!==old.due_at||timeSpecified!==old.time_specified||status!==old.status||reminderMinutes!==old.reminder_minutes?null:old.notified_at}).eq('id',id).eq('user_id',user.id).select('id'));
       if(!changed.length)return error('Action not found',404);
       const contact=old.contact_id?await cloud().from('recall_contacts').select('name').eq('id',old.contact_id).eq('user_id',user.id).single():null;if(contact?.error)throw new Error(contact.error.message);
       await enqueueCloudSheetEvent(user.id,{type:'action',actionId:id,interactionId:old.interaction_id,contactId:old.contact_id,contactName:contact?.data?.name||'',kind,title,dueAt,timeSpecified,status,createdAt:old.created_at});
@@ -168,7 +174,7 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       return response({ok:true});
     }
     return error('Not found',404);
-  }catch(cause){return fail(cause)}
+  }catch(cause){if(req.nextUrl.pathname==='/api/save')throw cause;return fail(cause)}
 }
 
 export async function cloudDELETE(req:NextRequest,{params}:Context){
@@ -184,7 +190,7 @@ export async function cloudDispatch(req:NextRequest){
     const userIds=[...new Set(due.map(a=>a.user_id))];
     const settings=userIds.length?dataOrThrow(await cloud().from('recall_user_settings').select('user_id,push_enabled,reminder_minutes').in('user_id',userIds)):[];
     const settingMap=new Map((settings as {user_id:string;push_enabled:boolean;reminder_minutes:number}[]).map(s=>[s.user_id,s]));
-    const ready=due.filter(a=>{const setting=settingMap.get(a.user_id);return setting?.push_enabled&&a.due_at&&new Date(a.due_at).getTime()-setting.reminder_minutes*60000<=Date.now()}).slice(0,100);
+    const ready=due.filter(a=>{const setting=settingMap.get(a.user_id);return setting?.push_enabled&&reminderAt(a.due_at,a.time_specified!==0,a.reminder_minutes)!==null&&Date.parse(reminderAt(a.due_at,a.time_specified!==0,a.reminder_minutes)!)<=Date.now()}).slice(0,100);
     const contactIds=[...new Set(ready.map(a=>a.contact_id).filter((id):id is string=>!!id))];
     const contacts=contactIds.length?dataOrThrow(await cloud().from('recall_contacts').select('id,name').in('id',contactIds)):[];
     const names=new Map((contacts as {id:string;name:string}[]).map(c=>[c.id,c.name]));

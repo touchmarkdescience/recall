@@ -53,11 +53,11 @@ function doPost(e) {
       // A settings check: record only the event receipt.
     } else if (payload.type === 'interaction') {
       if (!payload.interactionId) return reply_({ok:false,error:'Missing conversation fields'});
-      sheet_('Conversations',NOTES_HEADERS).appendRow([payload.eventId,payload.interactionId,payload.contactName||'',payload.transcript||'',payload.summary||'',payload.recordedAt||'',format_(payload.recordedAt)]);
+      sheet_('Conversations',NOTES_HEADERS).appendRow([payload.eventId,payload.interactionId,payload.contactName||'Guest',payload.transcript||'',payload.summary||'',payload.recordedAt||'',format_(payload.recordedAt)]);
     } else {
       if (!payload.actionId) return reply_({ok:false,error:'Missing action fields'});
       const tab = sheet_('Actions',ACTION_HEADERS);
-      const values = [payload.actionId,payload.interactionId||'',payload.contactName||'',payload.kind||'',payload.title||'',format_(payload.createdAt),payload.dueAt&&payload.timeSpecified===0?format_(payload.dueAt).slice(0,10)+' Any time':format_(payload.dueAt),payload.status||'pending',format_(new Date().toISOString())];
+      const values = [payload.actionId,payload.interactionId||'',payload.contactName||'Guest',payload.kind||'',payload.title||'',format_(payload.createdAt),payload.dueAt&&payload.timeSpecified===0?format_(payload.dueAt).slice(0,10)+' Any time':format_(payload.dueAt),payload.status||'pending',format_(new Date().toISOString())];
       const found = findRow_(tab,payload.actionId);
       if (found === -1) tab.appendRow(values); else tab.getRange(found,1,1,values.length).setValues([values]);
     }

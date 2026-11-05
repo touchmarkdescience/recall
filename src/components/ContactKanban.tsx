@@ -4,8 +4,8 @@ import { DateTime } from 'luxon';
 import { Archive, ArrowRight, Bell, CalendarDays, Check, Clock3, MoreHorizontal } from 'lucide-react';
 import ActionSheet from './ActionSheet';
 
-export type BoardAction={id:string;kind:'follow_up'|'reminder'|'meeting';title:string;dueAt:string|null;timeSpecified?:number;status:string;createdAt:string;durationMinutes?:number;conversationSummary?:string|null};
-export type ActionPatch={status:string;title?:string;kind?:BoardAction['kind'];dueAt?:string|null;timeSpecified?:boolean};
+export type BoardAction={id:string;kind:'follow_up'|'reminder'|'meeting';title:string;dueAt:string|null;timeSpecified?:number;status:string;createdAt:string;durationMinutes?:number;reminderMinutes?:number;conversationSummary?:string|null};
+export type ActionPatch={status:string;title?:string;kind?:BoardAction['kind'];dueAt?:string|null;timeSpecified?:boolean;reminderMinutes?:number};
 type Props={actions:BoardAction[];personName:string;onUpdate:(id:string,patch:ActionPatch)=>Promise<boolean>};
 type Tab='action'|'followup'|'done'|'archived';
 type SheetMode='details'|'edit'|'reschedule';
@@ -15,7 +15,7 @@ const dateGroups=['Overdue','Today','Tomorrow','Later','No date'] as const;
 const format=(iso:string|null,timed=true)=>iso?DateTime.fromISO(iso).setZone(zone).toFormat(timed?'d LLL · h:mm a':'d LLL · Any time')+(timed?' IST':''):'No date';
 function dateGroup(action:BoardAction){if(!action.dueAt)return 'No date';const date=DateTime.fromISO(action.dueAt).setZone(zone).startOf('day'),now=DateTime.now().setZone(zone).startOf('day');if(date<now)return 'Overdue';if(date.equals(now))return 'Today';if(date.equals(now.plus({days:1})))return 'Tomorrow';return 'Later'}
 function belongs(action:BoardAction,tab:Tab){return tab==='archived'?action.status==='archived':tab==='done'?action.status==='done':tab==='followup'?action.status==='pending'&&action.kind==='follow_up':action.status==='pending'&&action.kind!=='follow_up'}
-function reverse(action:BoardAction,patch:ActionPatch):ActionPatch{const old:ActionPatch={status:action.status};if(patch.title!==undefined)old.title=action.title;if(patch.kind!==undefined)old.kind=action.kind;if(patch.dueAt!==undefined)old.dueAt=action.dueAt;if(patch.timeSpecified!==undefined)old.timeSpecified=action.timeSpecified!==0;return old}
+function reverse(action:BoardAction,patch:ActionPatch):ActionPatch{const old:ActionPatch={status:action.status};if(patch.title!==undefined)old.title=action.title;if(patch.kind!==undefined)old.kind=action.kind;if(patch.dueAt!==undefined)old.dueAt=action.dueAt;if(patch.timeSpecified!==undefined)old.timeSpecified=action.timeSpecified!==0;if(patch.reminderMinutes!==undefined)old.reminderMinutes=action.reminderMinutes??0;return old}
 
 export default function ContactKanban({actions,personName,onUpdate}:Props){
   const [tab,setTab]=useState<Tab>('action'),[opened,setOpened]=useState<{action:BoardAction;mode:SheetMode}|null>(null),[menu,setMenu]=useState(''),[revealed,setRevealed]=useState('');

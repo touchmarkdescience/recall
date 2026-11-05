@@ -46,6 +46,8 @@ export function db() {
         COMMIT;
         PRAGMA foreign_keys = ON;`);
     }
+    const reminderColumns=database.prepare('PRAGMA table_info(actions)').all() as Array<{name:string}>;
+    if(!reminderColumns.some(column=>column.name==='reminder_minutes'))database.exec('ALTER TABLE actions ADD COLUMN reminder_minutes INTEGER NOT NULL DEFAULT 0 CHECK (reminder_minutes IN (0,10,30,60,1440))');
     globalStore.recallStore = { db: database };
   }
   return globalStore.recallStore.db;

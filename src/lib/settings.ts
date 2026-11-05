@@ -20,7 +20,9 @@ export async function flushSheetOutbox(userId:string){
   const jobs=rows<{id:string;payload:string}>('SELECT id,payload_json AS payload FROM sheet_outbox WHERE user_id=? AND synced_at IS NULL ORDER BY created_at LIMIT 100',userId);
   for(const job of jobs){
     try{
-      const response=await fetch(config.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({secret:config.secret,eventId:job.id,...JSON.parse(job.payload)}),signal:AbortSignal.timeout(10000)});
+      const payload=JSON.parse(job.payload) as Record<string,unknown>;
+      const sheetPayload={...payload,...((payload.type==='action'||payload.type==='interaction')&&!payload.contactName?{contactName:'Guest'}:{})};
+      const response=await fetch(config.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({secret:config.secret,eventId:job.id,...sheetPayload}),signal:AbortSignal.timeout(10000)});
       const result=await response.json();
       if(!response.ok||result?.ok!==true)throw new Error(String(result?.error||`Sheet response ${response.status}`));
       run('UPDATE sheet_outbox SET synced_at=?,error=NULL WHERE id=? AND user_id=?',new Date().toISOString(),job.id,userId);sent++;
