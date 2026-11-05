@@ -111,17 +111,18 @@ export async function POST(req:NextRequest,{params}:Context) {
     if(path==='action') {
       const id=clean(body.id),status=clean(body.status);
       if(!['pending','done','archived','removed'].includes(status)) return error('Invalid status');
-      const current=row<{title:string;dueAt:string|null;timeSpecified:number}>('SELECT title,due_at AS dueAt,time_specified AS timeSpecified FROM actions WHERE id=? AND user_id=?',id,user.id);
+      const current=row<{title:string;kind:string;dueAt:string|null;timeSpecified:number}>('SELECT title,kind,due_at AS dueAt,time_specified AS timeSpecified FROM actions WHERE id=? AND user_id=?',id,user.id);
       if(!current)return error('Action not found',404);
       const title=body.title===undefined?current.title:clean(body.title);
+      const kind=body.kind===undefined?current.kind:clean(body.kind);
       const dueAt=body.dueAt===undefined?current.dueAt:(body.dueAt||null);
       const timeSpecified=body.timeSpecified===undefined?current.timeSpecified:body.timeSpecified===false?0:1;
-      if(!title||title.length>500||(dueAt&&!DateTime.fromISO(dueAt).isValid))return error('Enter a valid title and date.');
+      if(!title||title.length>500||!['follow_up','reminder','meeting'].includes(kind)||(dueAt&&!DateTime.fromISO(dueAt).isValid))return error('Enter a valid title, type and date.');
       if(body.dueAt!==undefined&&dueAt&&timeSpecified!==0&&DateTime.fromISO(dueAt).toMillis()<Date.now())return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
-      const result=run('UPDATE actions SET status=?,title=?,due_at=?,time_specified=?,notified_at=NULL WHERE id=? AND user_id=?',status,title,dueAt,timeSpecified,id,user.id);
+      const result=run('UPDATE actions SET status=?,title=?,kind=?,due_at=?,time_specified=?,notified_at=CASE WHEN due_at IS NOT ? OR time_specified IS NOT ? OR status IS NOT ? THEN NULL ELSE notified_at END WHERE id=? AND user_id=?',status,title,kind,dueAt,timeSpecified,dueAt,timeSpecified,status,id,user.id);
       if(!result.changes)return error('Action not found',404);
       const action=row<{interactionId:string|null;contactId:string|null;contactName:string|null;kind:string;createdAt:string}>('SELECT a.interaction_id AS interactionId,a.contact_id AS contactId,c.name AS contactName,a.kind,a.created_at AS createdAt FROM actions a LEFT JOIN contacts c ON c.id=a.contact_id WHERE a.id=? AND a.user_id=?',id,user.id)!;
-      enqueueSheetEvent(user.id,{type:'action',actionId:id,...action,title,dueAt,timeSpecified,status});
+      enqueueSheetEvent(user.id,{type:'action',actionId:id,...action,kind,title,dueAt,timeSpecified,status});
       const sync=await flushSheetOutbox(user.id);
       return json({ok:true,sheetSyncPending:sync.pending});
     }

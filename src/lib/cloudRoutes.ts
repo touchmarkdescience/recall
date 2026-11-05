@@ -117,14 +117,14 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       const current=await cloud().from('recall_actions').select('*').eq('id',id).eq('user_id',user.id).maybeSingle();if(current.error)throw new Error(current.error.message);
       if(!current.data)return error('Action not found',404);
       const old=current.data as Action;
-      const title=body.title===undefined?old.title:clean(body.title),dueAt=body.dueAt===undefined?old.due_at:body.dueAt||null;
+      const title=body.title===undefined?old.title:clean(body.title),kind=body.kind===undefined?old.kind:clean(body.kind),dueAt=body.dueAt===undefined?old.due_at:body.dueAt||null;
       const timeSpecified=body.timeSpecified===undefined?old.time_specified:body.timeSpecified===false?0:1;
-      if(!title||title.length>500||(dueAt&&!DateTime.fromISO(dueAt).isValid))return error('Enter a valid title and date.');
+      if(!title||title.length>500||!['follow_up','reminder','meeting'].includes(kind)||(dueAt&&!DateTime.fromISO(dueAt).isValid))return error('Enter a valid title, type and date.');
       if(body.dueAt!==undefined&&dueAt&&timeSpecified!==0&&DateTime.fromISO(dueAt).toMillis()<Date.now())return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
-      const changed=dataOrThrow(await cloud().from('recall_actions').update({status,title,due_at:dueAt,time_specified:timeSpecified,notified_at:null}).eq('id',id).eq('user_id',user.id).select('id'));
+      const changed=dataOrThrow(await cloud().from('recall_actions').update({status,title,kind,due_at:dueAt,time_specified:timeSpecified,notified_at:dueAt!==old.due_at||timeSpecified!==old.time_specified||status!==old.status?null:old.notified_at}).eq('id',id).eq('user_id',user.id).select('id'));
       if(!changed.length)return error('Action not found',404);
       const contact=old.contact_id?await cloud().from('recall_contacts').select('name').eq('id',old.contact_id).eq('user_id',user.id).single():null;if(contact?.error)throw new Error(contact.error.message);
-      await enqueueCloudSheetEvent(user.id,{type:'action',actionId:id,interactionId:old.interaction_id,contactId:old.contact_id,contactName:contact?.data?.name||'',kind:old.kind,title,dueAt,timeSpecified,status,createdAt:old.created_at});
+      await enqueueCloudSheetEvent(user.id,{type:'action',actionId:id,interactionId:old.interaction_id,contactId:old.contact_id,contactName:contact?.data?.name||'',kind,title,dueAt,timeSpecified,status,createdAt:old.created_at});
       const sync=await flushCloudSheetOutbox(user.id);return response({ok:true,sheetSyncPending:sync.pending});
     }
     if(path==='settings'){
