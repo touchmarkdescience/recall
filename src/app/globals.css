@@ -16,3 +16,5 @@
 
 .speaking-guide{border:1px solid #dce8df;background:#f4f8f3;border-radius:15px;padding:14px 16px;margin:-13px 0 17px;color:var(--ink)}.speaking-guide strong{display:block;font-size:13px;margin-bottom:8px}.speaking-guide ul{list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:0;margin:0 0 8px}.speaking-guide li{background:#fff;border:1px solid #e1ebe2;border-radius:10px;padding:9px 11px}.speaking-guide li span{display:block;color:#55806b;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}.speaking-guide li p{margin:0;font-size:12px;line-height:1.4;font-weight:600}.speaking-guide small{display:block;color:#758b7d;font-size:11px;line-height:1.35}
 @media(max-width:780px){.speaking-guide ul{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;padding-bottom:5px}.speaking-guide li{flex:0 0 82%;scroll-snap-align:start}.speaking-guide li p{font-size:12px}.speaking-guide{margin-top:-10px}}
+
+.no-action-warning{border:1px solid #efd7b6;background:#fff8ed;color:#875b25;border-radius:10px;padding:11px 13px;font-size:13px;line-height:1.4;margin:0 0 12px}

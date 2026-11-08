@@ -66,13 +66,13 @@ export function templateExtract(transcript: string, now=new Date()): Extraction 
 }
 export function naturalExtract(transcript: string, now=new Date()): Extraction | null {
   const clean=transcript.trim();
-  const reminder=/\bremind me\b/i.exec(clean);
+  const reminder=/\b(?:remind|remain) me\b/i.exec(clean);
   if(!reminder) return null;
   const named=clean.match(/^(?:hey,?\s*)?name\s*:?(?:\s+is)?\s+([\p{L}'-]+(?:\s+[\p{L}'-]+){0,2})\s*[.;,]/iu)?.[1]||'';
   const person=clean.match(/\b(?:spoke (?:to|with)|called|call|meeting(?: with)?|meet with)\s+((?:(?:Mr|Mrs|Ms|Dr|Prof)\.?\s+)?(?:[\p{L}]\.\s+)?[\p{L}'-]+(?:\s+(?!(?:on|at|by|about|for|to|tomorrow|today|next|in|and|or|we)\b)[\p{L}'-]+){0,2})/iu)?.[1]?.trim()||'';
   const contactName=(named||person).replace(/\s+/g,' ').trim();
   const topic=clean.match(/\babout\s+(.+?)(?=\s*(?:[;,.]|\bremind\b|\bor\b|$))/i)?.[1]?.trim()||'';
-  if(reminder.index===0||/^hey,?\s*remind me\b/i.test(clean)) {
+  if(reminder.index===0||/^hey,?\s*(?:remind|remain) me\b/i.test(clean)) {
     const dueAt=parseIST(clean,now);
     return {contactName,topic,summary:clean,actions:[{kind:'reminder',title:clean.replace(/^hey,?\s*/i,''),dueAt,timeSpecified:!!timeOf(clean)}],mode:'Local rules'};
   }
@@ -107,7 +107,8 @@ export function localExtract(transcript: string, now=new Date()): Extraction {
   const segments=conflicting?[clean]:protectedText.split(/(?:[.;]|\s+and\s+(?=(?:call|follow|remind|meet|schedule|reschedule|send|check)\b))/i).map(s=>s.replace(/\uE000/g,'.').trim()).filter(Boolean);
   const actions: DraftAction[]=[];
   for(const segment of segments) {
-    const kind=/\b(meet|meeting|schedule|reschedule)\b/i.test(segment)?'meeting':/\b(remind|reminder)\b/i.test(segment)?'reminder':/\b(follow up|call|send|share|submit|deliver|prepare|update|finish|check back|reach out|get back)\b/i.test(segment)?'follow_up':null;
+    const futureDiscussion=/\b(?:discuss|discussion|discussing)\b/i.test(segment)&&/\b(?:tomorrow|next|will|planned|plan to|at \d|by \d|on \w+day)\b/i.test(segment);
+    const kind=/\b(meet|meeting|schedule|reschedule)\b/i.test(segment)||futureDiscussion?'meeting':/\b(remind|reminder)\b/i.test(segment)?'reminder':/\b(follow up|call|send|share|submit|deliver|prepare|update|finish|check back|reach out|get back)\b/i.test(segment)?'follow_up':null;
     if(!kind) continue;
     if(/\b(?:spoke|talked|called|met)\b/i.test(segment) && !/\b(?:need to|should|will|please|next|again|tomorrow|today|in \d+ days?|at \d|on \w+day)\b/i.test(segment)) continue;
     const dayContext=segment.match(/\b(?:day after tomorrow|tomorrow|today|in \d+ days?|on \w+day)\b/i)?.[0]||'';
