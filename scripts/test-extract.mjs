@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { DateTime } from 'luxon';
-import { localExtract, parseIST } from '../src/lib/extract.ts';
+import { localExtract, naturalExtract, parseIST, templateExtract } from '../src/lib/extract.ts';
 import { appendTranscript } from '../src/lib/transcription.ts';
 
 const now = new Date('2026-11-03T18:30:00Z'); // 4 Nov 2026, 00:00 IST
@@ -30,6 +30,39 @@ const ambiguous=localExtract('Tomorrow I am meeting Sujay for a demo about start
 assert.equal(ambiguous.contactName,'Sujay');
 assert.equal(ambiguous.topic,'startup product');
 assert.equal(ambiguous.actions[0].timeChoices?.length,2);
+
+const guided=templateExtract('Name Sujay. Action send the demo proposal about startup product. Type follow-up. When tomorrow at 2 PM.',now);
+assert.equal(guided.contactName,'Sujay');
+assert.equal(guided.topic,'startup product');
+assert.equal(guided.actions[0].kind,'follow_up');
+assert.equal(DateTime.fromISO(guided.actions[0].dueAt).setZone('Asia/Kolkata').toFormat('d LLL h:mm a'),'5 Nov 2:00 PM');
+const guest=templateExtract('Action send the team an update. Type reminder. When tomorrow at 9 AM.',now);
+assert.equal(guest.contactName,'');
+assert.equal(guest.actions[0].title,'send the team an update');
+const conflicting=templateExtract('Name Guest. Action prepare for the meeting. Type reminder. When tomorrow at 1 PM or 4 PM.',now);
+assert.equal(conflicting.actions[0].dueAt,null);
+assert.equal(conflicting.actions[0].timeChoices.length,2);
+assert.equal(templateExtract('Name Sujay action present the demo type meeting when tomorrow at 4 PM',now).contactName,'Sujay');
+assert.equal(templateExtract('Name is Sujay. Action send the proposal. Type follow-up. When tomorrow at 2 PM.',now).contactName,'Sujay');
+
+const afterCall=naturalExtract('I just spoke with Arjun. We’ll discuss the PPT tomorrow at 6 PM. Remind me one hour before.',now);
+assert.equal(afterCall.contactName,'Arjun');
+assert.equal(afterCall.actions.length,1);
+assert.equal(afterCall.actions[0].kind,'meeting');
+assert.equal(afterCall.actions[0].reminderMinutes,60);
+assert.equal(DateTime.fromISO(afterCall.actions[0].dueAt).setZone('Asia/Kolkata').toFormat('d LLL h:mm a'),'5 Nov 6:00 PM');
+const callBack=naturalExtract('Remind me to call Mr. R. Mugam on Saturday at 4 PM.',now);
+assert.equal(callBack.contactName,'Mr. R. Mugam');
+assert.equal(callBack.actions[0].kind,'reminder');
+assert.equal(DateTime.fromISO(callBack.actions[0].dueAt).setZone('Asia/Kolkata').toFormat('d LLL h:mm a'),'7 Nov 4:00 PM');
+const investor=naturalExtract('I have an investor meeting with Arjun on Thursday at 3 PM. Remind me one day before.',now);
+assert.equal(investor.contactName,'Arjun');
+assert.equal(investor.actions[0].reminderMinutes,1440);
+const prepare=naturalExtract('Remind me tomorrow at 8 AM to prepare a PPT for the team meeting.',now);
+assert.equal(prepare.contactName,'');
+assert.equal(prepare.actions[0].kind,'reminder');
+assert.equal(DateTime.fromISO(prepare.actions[0].dueAt).setZone('Asia/Kolkata').toFormat('h:mm a'),'8:00 AM');
+assert.equal(localExtract('Hey, I just called Arjun. We decided to have a PPT discussion by tomorrow at 6 PM. Remind me.',now).actions[0].reminderMinutes,0);
 
 console.log('Extraction and segment tests passed');
 
@@ -61,6 +94,10 @@ assert.equal(localExtract('Call Priya at 5 pm. Send slides tomorrow',now).action
 console.log('Clock-time regression tests passed');
 
 const {reminderAt,validReminder}=await import('../src/lib/reminders.ts');
+assert.equal(DateTime.fromISO(reminderAt(afterCall.actions[0].dueAt,true,afterCall.actions[0].reminderMinutes)).setZone('Asia/Kolkata').toFormat('d LLL h:mm a'),'5 Nov 5:00 PM');
+const noMeetingTime=naturalExtract('Name Arjun. We have scheduled an investor meeting on Thursday. Remind me one day before.',now);
+assert.equal(noMeetingTime.actions[0].timeSpecified,false);
+assert.equal(reminderAt(noMeetingTime.actions[0].dueAt,false,noMeetingTime.actions[0].reminderMinutes),null);
 const due='2026-11-17T07:00:00.000Z'; // 12:30 PM IST
 for(const offset of [0,10,30,60,1440]){
   assert.equal(validReminder(offset),true);
