@@ -32,7 +32,7 @@ export function parseIST(phrase: string, now=new Date()): string | null {
   if(days) d=base.plus({days:Number(days[1])});
   else if(/\bday after tomorrow\b/.test(lower)) d=base.plus({days:2});
   else if(/\btomorrow\b/.test(lower)) d=base.plus({days:1});
-  else if(/\btoday\b/.test(lower)) d=base;
+  else if(/\b(?:today|tonight)\b/.test(lower)) d=base;
   const dayFirst=[...lower.matchAll(/\b(?:on\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)(?:\s+(\d{4}))?\b/g)].find(m=>months.some(month=>month.startsWith(m[2])));
   const monthFirst=lower.match(/\b([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/);
   const named=dayFirst&&months.findIndex(month=>month.startsWith(dayFirst[2]))>=0?{day:Number(dayFirst[1]),month:months.findIndex(month=>month.startsWith(dayFirst[2]))+1,year:Number(dayFirst[3]||base.year)}:monthFirst&&months.findIndex(month=>month.startsWith(monthFirst[1]))>=0?{day:Number(monthFirst[2]),month:months.findIndex(month=>month.startsWith(monthFirst[1]))+1,year:Number(monthFirst[3]||base.year)}:null;
@@ -81,7 +81,7 @@ export function naturalExtract(transcript: string, now=new Date()): Extraction |
   const reminder=/\b(?:remind|remain) me\b/i.exec(clean);
   if(!reminder) return null;
   const named=clean.match(/^(?:hey,?\s*)?name\s*:?(?:\s+is)?\s+([\p{L}'-]+(?:\s+[\p{L}'-]+){0,2})\s*[.;,]/iu)?.[1]||'';
-  const person=clean.match(/\b(?:spoke (?:to|with)|called|call|meeting(?: with)?|meet with)\s+((?:(?:Mr|Mrs|Ms|Dr|Prof)\.?\s+)?(?:[\p{L}]\.\s+)?[\p{L}'-]+(?:\s+(?!(?:on|at|by|about|for|to|tomorrow|today|next|in|after|another|and|or|we)\b)[\p{L}'-]+){0,2})/iu)?.[1]?.trim()||'';
+  const person=clean.match(/\b(?:spoke (?:to|with)|met(?: with)?|called|call|meeting(?: with)?|meet with)\s+((?:(?:Mr|Mrs|Ms|Dr|Prof)\.?\s+)?(?:[\p{L}]\.\s+)?[\p{L}'-]+(?:\s+(?!(?:on|at|by|about|for|to|tomorrow|today|next|in|after|another|and|or|we|from|he|she|they|who)\b)[\p{L}'-]+){0,2})/iu)?.[1]?.trim()||'';
   const contactName=(named||person).replace(/\s+/g,' ').trim();
   const topic=clean.match(/\babout\s+(.+?)(?=\s*(?:[;,.]|\bremind\b|\bor\b|$))/i)?.[1]?.trim()||'';
   if(reminder.index===0||/^hey,?\s*(?:remind|remain) me\b/i.test(clean)) {
@@ -97,6 +97,26 @@ export function naturalExtract(transcript: string, now=new Date()): Extraction |
   const eventTimes=[...normalizeTime(event).matchAll(explicitTime)].map(match=>match[0]);
   const reminderTimes=lead?[]:[...normalizeTime(instruction).matchAll(explicitTime)].map(match=>match[0]);
   const dayContext=event.match(/\b(?:day after tomorrow|tomorrow|today|in \d+ days?|on \w+day|next \w+day|this \w+day)\b/i)?.[0]||'';
+  // A time after "remind me" is an alert instruction, not a clock time for
+  // the earlier event. Keep its own day (tonight/today vs tomorrow).
+  if(!lead&&reminderTimes.length===1&&eventTimes.length<=1&&!/\b(?:or|versus|instead)\b/i.test(instruction)) {
+    const ownDay=/\b(?:today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\b\d{1,2}(?:st|nd|rd|th)?\s+[a-z]+/i.test(instruction);
+    const alertAt=parseIST(`${ownDay?'':dayContext} ${instruction}`,now);
+    if(alertAt) {
+      const alert:DraftAction={kind:'reminder',title:clean.slice(0,500),dueAt:alertAt,timeSpecified:true,reminderMinutes:0};
+      // If no event clock was spoken, do not invent a 9 AM appointment.
+      // The full instruction remains in the reminder title and original note.
+      if(eventTimes.length===0)return {contactName,topic,summary:clean,actions:[alert],mode:'Local rules'};
+      const eventAt=parseIST(event,now);
+      if(eventAt) {
+        const offset=(Date.parse(eventAt)-Date.parse(alertAt))/60000;
+        const kind=/\b(meet|meeting|discuss|discussion|scheduled|schedule)\b/i.test(event)?'meeting':'follow_up';
+        const action:DraftAction={kind,title:event.charAt(0).toUpperCase()+event.slice(1),dueAt:eventAt,timeSpecified:true,reminderMinutes:0};
+        if([0,10,30,60,1440].includes(offset))return {contactName,topic,summary:clean,actions:[{...action,reminderMinutes:offset}],mode:'Local rules'};
+        return {contactName,topic,summary:clean,actions:[action,alert],mode:'Local rules'};
+      }
+    }
+  }
   const choices=[...new Set([...eventTimes,...reminderTimes].map(time=>parseIST(`${dayContext} ${time}`,now)).filter((value):value is string=>!!value))];
   const ambiguous=choices.length>1;
   const kind=/\b(meet|meeting|discuss|discussion|scheduled|schedule)\b/i.test(event)?'meeting':'follow_up';

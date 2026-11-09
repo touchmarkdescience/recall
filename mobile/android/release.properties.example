@@ -1,0 +1,2 @@
+# Copy to release.properties (ignored). Confirm the permanent ID with the Play Console owner.
+applicationId=com.yourcompany.recall

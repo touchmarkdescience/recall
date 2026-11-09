@@ -1,0 +1,14 @@
+{
+  "date": "2026-11-09",
+  "origin": "https://recall.touchmarkdes.com",
+  "signup": true,
+  "nativeSession": true,
+  "manualSaveAllThreeKinds": true,
+  "dashboardReadBack": true,
+  "wrongDeletionPasswordRejected": true,
+  "missingConfirmationRejected": true,
+  "disposableAccountDeleted": true,
+  "oldSessionRejected": true,
+  "deletedAccountLoginRejected": true,
+  "notes": "Only a newly created synthetic test account was changed. No existing account data was used. Direct production table inspection was not performed."
+}

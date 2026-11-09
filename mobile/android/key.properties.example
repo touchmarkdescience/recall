@@ -1,0 +1,5 @@
+# Copy to key.properties (ignored). Use an absolute keystore path; never commit credentials.
+storeFile=/absolute/private/path/recall-upload.jks
+storePassword=REPLACE_LOCALLY
+keyAlias=recall-upload
+keyPassword=REPLACE_LOCALLY

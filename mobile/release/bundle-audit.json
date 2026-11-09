@@ -1,0 +1,77 @@
+{
+  "date": "2026-11-09",
+  "package": "com.touchmarkdes.recall",
+  "versionName": "1.0.5",
+  "versionCode": 7,
+  "targetSdk": 36,
+  "minSdk": 24,
+  "aabBytes": 43547443,
+  "aabSha256": "e785b460d7e931d66b2aa328ce1d95a72ff2fd72ac6d0b1c8e3a93b04367b68d",
+  "apkSha256": "7a4f0b7e3c5e65ded0d4ffa2f33df56faff582a50122ae0cdbc7586dafb3b5ff",
+  "uploadCertificateSha256": "1A:9D:65:E8:AB:CE:7D:1C:42:FC:1F:C4:60:A1:FC:E5:D3:65:44:4C:39:64:20:1B:33:00:D8:7C:20:81:64:F6",
+  "nativeLibraries": [
+    {
+      "library": "base/lib/arm64-v8a/libapp.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ],
+      "passes16KB": true
+    },
+    {
+      "library": "base/lib/arm64-v8a/libdartjni.so",
+      "loadSegmentAlignment": [
+        16384,
+        16384,
+        16384
+      ],
+      "passes16KB": true
+    },
+    {
+      "library": "base/lib/arm64-v8a/libflutter.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ],
+      "passes16KB": true
+    },
+    {
+      "library": "base/lib/x86_64/libapp.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ],
+      "passes16KB": true
+    },
+    {
+      "library": "base/lib/x86_64/libdartjni.so",
+      "loadSegmentAlignment": [
+        16384,
+        16384,
+        16384
+      ],
+      "passes16KB": true
+    },
+    {
+      "library": "base/lib/x86_64/libflutter.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ],
+      "passes16KB": true
+    }
+  ],
+  "all64BitELFSegments16KBAligned": true,
+  "releaseAPK16KBZipAlignment": "zipalign -c -P 16 -v 4: Verification successful",
+  "runtime16KBDeviceTest": "unverified",
+  "bundletoolPageAlignment": "BundleConfig.pb decoded with cached bundletool/protobuf: PAGE_ALIGNMENT_16K",
+  "knownLocalServerSecretsFoundInAAB": 0,
+  "productionAccountDeletion": "PASS live disposable account: authenticated deletion succeeded; old session and login rejected; temporary credentials removed",
+  "physicalDeviceAcceptance": "pending",
+  "releaseAPKOfflineDelivery": "all three action kinds posted within one second while airplane mode enabled, Wi-Fi/data off and app process previously terminated",
+  "aabSignatureVerification": "jarsigner: jar verified; self-signed upload certificate (expected for upload signing)"
+}

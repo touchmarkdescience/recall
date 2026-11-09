@@ -135,3 +135,21 @@ for (const [phrase,minutes] of [
 }
 assert.equal(parseIST('Remind me in 3 minutes or in 15 minutes',now),null);
 console.log('Relative reminder timing regression tests passed');
+
+const noonIST = new Date('2026-11-09T07:30:00.000Z');
+const reported = 'today I met Anand from SS TPL he wanted me to call him tomorrow with the proposal document so remind me tonight 6:00 p.m.';
+const explicitAlert = naturalExtract(reported, noonIST);
+assert.equal(explicitAlert.contactName,'Anand');
+assert.equal(explicitAlert.actions.length,1);
+assert.equal(explicitAlert.actions[0].kind,'reminder');
+assert.equal(explicitAlert.actions[0].dueAt,'2026-11-09T12:30:00.000Z');
+assert.equal(explicitAlert.actions[0].timeSpecified,true);
+assert.match(explicitAlert.actions[0].title,/remind me tonight 6:00 p\.m\./);
+const separate = naturalExtract('I spoke with Arjun. We will discuss the PPT tomorrow at 6 PM. Remind me tonight at 5 PM.', noonIST);
+assert.equal(separate.actions.length,2);
+assert.equal(separate.actions[0].dueAt,'2026-11-10T12:30:00.000Z');
+assert.equal(separate.actions[1].dueAt,'2026-11-09T11:30:00.000Z');
+const sameDay = naturalExtract('I spoke with Arjun. We will discuss the PPT tomorrow at 6 PM. Remind me tomorrow at 5 PM.', noonIST);
+assert.equal(sameDay.actions.length,1);
+assert.equal(sameDay.actions[0].reminderMinutes,60);
+console.log('Explicit alert day/time regression tests passed');

@@ -1,0 +1,1 @@
+Actual signed native Android app screenshots, build 7, Pixel 3a XL Android 13 emulator, 1080x2160. Fictitious account and task data. No real customer records. App code rendered these screens; no mock UI overlaid. The disposable account was deleted after capture.

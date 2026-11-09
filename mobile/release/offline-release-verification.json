@@ -1,0 +1,29 @@
+{
+  "build": 7,
+  "checkedAtUtc": "2026-11-09T05:55:50.456590+00:00",
+  "preconditions": {
+    "checkedAtUtc": "2026-11-09T05:54:45.446608+00:00",
+    "airplaneMode": "enabled",
+    "wifi": "Wifi is disabled\nWifi scanning is always available",
+    "mobileData": "0",
+    "processId": "",
+    "dueAtUtc": "2026-11-09T05:55:07.726Z"
+  },
+  "notificationEvidence": [
+    [
+      "android.title=String (Recall reminder)",
+      "android.text=String (Release check reminder)",
+      "mCreationTimeMs=1794203708470"
+    ],
+    [
+      "android.title=String (Meeting reminder)",
+      "android.text=String (Release check meeting)",
+      "mCreationTimeMs=1794203708443"
+    ],
+    [
+      "android.title=String (Follow-up reminder)",
+      "android.text=String (Release check follow_up)",
+      "mCreationTimeMs=1794203708360"
+    ]
+  ]
+}
