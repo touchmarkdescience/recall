@@ -120,3 +120,18 @@ assert.equal(validReminder(15),false);
 assert.equal(validReminder('30'),false);
 assert.equal(reminderAt('2026-11-18T07:00:00.000Z',true,30),'2026-11-18T06:30:00.000Z');
 console.log('Reminder offset tests passed');
+
+// Relative reminder regression: these exact mobile phrases must be timed.
+for (const [phrase,minutes] of [
+  ['In another 3 minutes I need a reminder to check the code for mobile',3],
+  ['remind me for checking code in another 15 minutes',15],
+  ['Remind me in three minutes',3],
+  ['Call Arjun after fifteen minutes',15],
+  ['Meeting in 2 hours',120],
+]) {
+  const action=localExtract(phrase,now).actions[0];
+  assert.ok(action,phrase);assert.equal(action.timeSpecified,true,phrase);
+  assert.equal(DateTime.fromISO(action.dueAt).toMillis(),now.getTime()+minutes*60000,phrase);
+}
+assert.equal(parseIST('Remind me in 3 minutes or in 15 minutes',now),null);
+console.log('Relative reminder timing regression tests passed');

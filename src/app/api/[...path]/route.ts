@@ -27,7 +27,7 @@ export async function GET(req:NextRequest,{params}:Context) {
   if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
   try {
     const path=(await params).path.join('/');
-    if(path==='me') {const user=await currentUser(),provider=user?getSettings(user.id).transcriptionProvider:defaultSttProvider();return json({user,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:!!(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
+    if(path==='me') {const user=await currentUser(),provider=user?getSettings(user.id).transcriptionProvider:defaultSttProvider();return json({user,accountDeletionAvailable:true,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:!!(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
     const user=await onlyMine();
     if(path==='settings') return json(getSettings(user.id));
     if(path==='dashboard') {
@@ -69,13 +69,13 @@ async function handlePOST(req:NextRequest,{params}:Context) {
       const email=clean(body.email).toLowerCase(), name=clean(body.name), password=String(body.password||'');
       if(!/^\S+@\S+\.\S+$/.test(email)||!name||password.length<8) return error('Enter a name, valid email, and password of at least 8 characters.');
       if(row('SELECT id FROM users WHERE email=?',email)) return error('An account with this email already exists.');
-      const id=randomUUID();run('INSERT INTO users(id,email,name,password_hash,created_at) VALUES(?,?,?,?,?)',id,email,name,passwordHash(password),now());await setSession(id);return json({ok:true});
+      const id=randomUUID();run('INSERT INTO users(id,email,name,password_hash,created_at) VALUES(?,?,?,?,?)',id,email,name,passwordHash(password),now());const token=await setSession(id);return json({ok:true,...(req.headers.get('x-recall-client')==='native'?{token}:{})});
     }
     if(path==='login') {
       const email=clean(body.email).toLowerCase(), password=String(body.password||'');
       const user=row<{id:string;password_hash:string}>('SELECT id,password_hash FROM users WHERE email=?',email);
       if(!user||!passwordValid(password,user.password_hash)) return error('Email or password is incorrect.',401);
-      await setSession(user.id);return json({ok:true});
+      const token=await setSession(user.id);return json({ok:true,...(req.headers.get('x-recall-client')==='native'?{token}:{})});
     }
     if(path==='logout') {await clearSession();return json({ok:true});}
     const user=await onlyMine();
@@ -190,7 +190,15 @@ async function handlePOST(req:NextRequest,{params}:Context) {
 export async function DELETE(req:NextRequest,{params}:Context) {
   if(cloudConfigured())return cloudDELETE(req,{params});
   if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
-  try {if(!sameOrigin(req)) return error('Invalid origin',403);const path=(await params).path.join('/');const user=await onlyMine();if(path==='push/subscribe'){const endpoint=req.nextUrl.searchParams.get('endpoint')||'';run('DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?',user.id,endpoint);return json({ok:true});}return error('Not found',404);}catch(e){return asError(e);}
+  try {if(!sameOrigin(req)) return error('Invalid origin',403);const path=(await params).path.join('/');const user=await onlyMine();if(path==='account') {
+      const body=await req.json();
+      if(body.confirmation!=='DELETE'||typeof body.password!=='string'||body.password.length>1024)return error('Enter your password and confirm account deletion.');
+      const account=row<{password_hash:string}>('SELECT password_hash FROM users WHERE id=?',user.id);
+      if(!account||!passwordValid(body.password,account.password_hash))return error('Password is incorrect.',403);
+      run('DELETE FROM users WHERE id=?',user.id);
+      await clearSession();
+      return json({ok:true});
+    }if(path==='push/subscribe'){const endpoint=req.nextUrl.searchParams.get('endpoint')||'';run('DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?',user.id,endpoint);return json({ok:true});}return error('Not found',404);}catch(e){return asError(e);}
 }
 
 export async function PUT(req:NextRequest,{params}:Context) {

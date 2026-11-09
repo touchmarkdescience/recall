@@ -30,7 +30,7 @@ async function contactsFor(userId:string){return dataOrThrow(await cloud().from(
 export async function cloudGET(req:NextRequest,{params}:Context){
   try{
     const path=(await params).path.join('/');
-    if(path==='me'){const user=await currentUser(),provider=user?(await getCloudSettings(user.id)).transcriptionProvider:defaultSttProvider();return response({user,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
+    if(path==='me'){const user=await currentUser(),provider=user?(await getCloudSettings(user.id)).transcriptionProvider:defaultSttProvider();return response({user,accountDeletionAvailable:true,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
     const user=await onlyMine();
     if(path==='settings')return response(await getCloudSettings(user.id));
     if(path==='dashboard'){
@@ -74,13 +74,13 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       if(existing.data)return error('An account with this email already exists.');
       const id=randomUUID();
       dataOrThrow(await cloud().from('recall_users').insert({id,email,name,password_hash:passwordHash(password)}).select('id').single());
-      await setSession(id);return response({ok:true});
+      const token=await setSession(id);return response({ok:true,...(req.headers.get('x-recall-client')==='native'?{token}:{})});
     }
     if(path==='login'){
       const email=clean(body.email).toLowerCase(),password=String(body.password||'');
       const found=await cloud().from('recall_users').select('id,password_hash').eq('email',email).maybeSingle();if(found.error)throw new Error(found.error.message);
       if(!found.data||!passwordValid(password,found.data.password_hash))return error('Email or password is incorrect.',401);
-      await setSession(found.data.id);return response({ok:true});
+      const token=await setSession(found.data.id);return response({ok:true,...(req.headers.get('x-recall-client')==='native'?{token}:{})});
     }
     if(path==='logout'){await clearSession();return response({ok:true})}
     const user=await onlyMine();
@@ -178,7 +178,15 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
 }
 
 export async function cloudDELETE(req:NextRequest,{params}:Context){
-  try{if(!originOkay(req))return error('Invalid origin',403);const path=(await params).path.join('/');const user=await onlyMine();if(path==='push/subscribe'){const endpoint=req.nextUrl.searchParams.get('endpoint')||'';dataOrThrow(await cloud().from('recall_push_subscriptions').delete().eq('user_id',user.id).eq('endpoint',endpoint).select('id'));return response({ok:true})}return error('Not found',404)}catch(cause){return fail(cause)}
+  try{if(!originOkay(req))return error('Invalid origin',403);const path=(await params).path.join('/');const user=await onlyMine();if(path==='account') {
+      const body=await req.json();
+      if(body.confirmation!=='DELETE'||typeof body.password!=='string'||body.password.length>1024)return error('Enter your password and confirm account deletion.');
+      const account=dataOrThrow(await cloud().from('recall_users').select('password_hash').eq('id',user.id).single()) as {password_hash:string}|null;
+      if(!account||!passwordValid(body.password,account.password_hash))return error('Password is incorrect.',403);
+      dataOrThrow(await cloud().from('recall_users').delete().eq('id',user.id).select('id').single());
+      await clearSession();
+      return response({ok:true});
+    }if(path==='push/subscribe'){const endpoint=req.nextUrl.searchParams.get('endpoint')||'';dataOrThrow(await cloud().from('recall_push_subscriptions').delete().eq('user_id',user.id).eq('endpoint',endpoint).select('id'));return response({ok:true})}return error('Not found',404)}catch(cause){return fail(cause)}
 }
 
 export async function cloudDispatch(req:NextRequest){
