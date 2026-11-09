@@ -112,7 +112,7 @@ class RecallApiError implements Exception {
 }
 
 class RecallAction {
-  final String id, title, kind, contactName;
+  final String id, title, kind, contactName, originalNote;
   String status;
   final DateTime? createdAt;
   final DateTime? dueAt;
@@ -122,6 +122,7 @@ class RecallAction {
     : createdAt = DateTime.tryParse('${json['createdAt'] ?? ''}'),
       id = '${json['id'] ?? ''}',
       title = '${json['title'] ?? ''}',
+      originalNote = '${json['originalNote'] ?? ''}',
       kind = '${json['kind'] ?? 'follow_up'}',
       status = '${json['status'] ?? 'pending'}',
       contactName = '${json['contactName'] ?? ''}',

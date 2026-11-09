@@ -1,0 +1,46 @@
+[
+  {
+    "path": "/",
+    "status": 200,
+    "finalUrl": "https://recall.touchmarkdes.com/",
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "path": "/app",
+    "status": 200,
+    "finalUrl": "https://recall.touchmarkdes.com/app",
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "path": "/privacy",
+    "status": 200,
+    "finalUrl": "https://recall.touchmarkdes.com/privacy",
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "path": "/terms",
+    "status": 200,
+    "finalUrl": "https://recall.touchmarkdes.com/terms",
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "path": "/support",
+    "status": 200,
+    "finalUrl": "https://recall.touchmarkdes.com/support",
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "path": "/delete-account",
+    "status": 200,
+    "finalUrl": "https://recall.touchmarkdes.com/delete-account",
+    "contentType": "text/html; charset=utf-8"
+  },
+  {
+    "path": "/api/me",
+    "status": 200,
+    "finalUrl": "https://recall.touchmarkdes.com/api/me",
+    "contentType": "application/json",
+    "accountDeletionAvailable": true,
+    "authenticated": false
+  }
+]

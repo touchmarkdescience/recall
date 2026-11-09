@@ -33,7 +33,7 @@ export async function GET(req:NextRequest,{params}:Context) {
     if(path==='dashboard') {
       getSettings(user.id);
       const contacts=rows('SELECT id,name,phone,created_at AS createdAt FROM contacts WHERE user_id=? ORDER BY name COLLATE NOCASE',user.id);
-      const actions=rows('SELECT a.id,COALESCE(a.contact_id,\'\') AS contactId,COALESCE(c.name,\'\') AS contactName,a.kind,a.title,a.due_at AS dueAt,a.time_specified AS timeSpecified,a.duration_minutes AS durationMinutes,a.reminder_minutes AS reminderMinutes,a.status,a.created_at AS createdAt FROM actions a LEFT JOIN contacts c ON c.id=a.contact_id WHERE a.user_id=? ORDER BY CASE WHEN a.status=? THEN 0 ELSE 1 END,a.due_at IS NULL,a.due_at,a.created_at DESC LIMIT 1000',user.id,'pending');
+      const actions=rows('SELECT a.id,COALESCE(a.contact_id,\'\') AS contactId,COALESCE(c.name,\'\') AS contactName,a.kind,a.title,a.due_at AS dueAt,a.time_specified AS timeSpecified,a.duration_minutes AS durationMinutes,a.reminder_minutes AS reminderMinutes,a.status,a.created_at AS createdAt,i.transcript AS originalNote FROM actions a LEFT JOIN contacts c ON c.id=a.contact_id LEFT JOIN interactions i ON i.id=a.interaction_id AND i.user_id=a.user_id WHERE a.user_id=? ORDER BY CASE WHEN a.status=? THEN 0 ELSE 1 END,a.due_at IS NULL,a.due_at,a.created_at DESC LIMIT 1000',user.id,'pending');
       const interactions=rows('SELECT i.id,COALESCE(i.contact_id,\'\') AS contactId,COALESCE(c.name,\'\') AS contactName,i.summary,i.transcript,i.occurred_at AS occurredAt FROM interactions i LEFT JOIN contacts c ON c.id=i.contact_id WHERE i.user_id=? ORDER BY i.occurred_at DESC LIMIT 30',user.id);
       return json({contacts,actions,interactions});
     }
@@ -53,6 +53,7 @@ export async function POST(req:NextRequest,context:Context){
     const result=await handlePOST(req,context);
     if(!saving||result.ok)return result;
     const failure=await result.json();
+    if(result.status===400&&failure.error==='Choose a reminder offset from the list.')return NextResponse.json({error:'Choose an advance preset, or add a separate reminder at any date and time. Your text is kept.'},{status:400});
     if(failure.reference)return NextResponse.json({...failure,error:"Couldn't save. Your text is kept, please retry."},{status:result.status});
     return safeFailure(failure.error,'/api/save',result.status,true,req.headers.get('x-recall-reference'));
   }catch(cause){return safeFailure(cause,saving?'/api/save':'/api/[...path]',500,saving,req.headers.get('x-recall-reference'))}

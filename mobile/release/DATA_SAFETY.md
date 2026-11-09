@@ -16,7 +16,7 @@ This is an evidence-based draft, not a completed Play Console declaration. Servi
 | Web Push | Optional browser subscriptions + five-minute backend scheduler | Distinguish browser pushes from native local alarms; no native FCM integration in current Flutter app. |
 | Ads/payments/analytics | No advertising, billing or analytics SDK in observed Flutter dependencies | Do not claim absence of hosting operational logs. No admin activity dashboard added. |
 | Encryption | HTTPS release API; secure device session; passwords hashed | Confirm provider at-rest arrangements before making broader encryption claims. |
-| Deletion | Authenticated, password-confirmed DELETE /api/account plus web page/support email; schema cascades | Local SQLite verification passed; Supabase production cascade test/deployment still required. Owner must define backup/log retention and fulfill support requests. |
+| Deletion | Authenticated, password-confirmed DELETE /api/account plus web page/support email; schema cascades | Local verification and historical build 7 disposable-account live tests passed; current public deletion capability reports available. Final device acceptance and actual backup/log retention still require owner confirmation. Owner must define backup/log retention and fulfill support requests. |
 
 ## Permissions justification
 

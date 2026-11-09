@@ -1,13 +1,15 @@
 # Recall — Google Play release preparation
 
 Prepared 9 November 2026. Owner: **Touchmark Descience Pvt Ltd** (organization account).
-Name: **Recall**. Package: **com.touchmarkdes.recall**. Candidate: **1.0.5 (7)**.
+Name: **Recall**. Package: **com.touchmarkdes.recall**. Candidate: **1.0.8 (10)**.
 Price: **Free**, no in-app purchases, no subscriptions, no advertising SDK in the current app.
 Audience: friends and professional users, with a possible public free release. No admin dashboard in this scope.
 
+The current production handoff is [PRODUCTION_RELEASE.md](PRODUCTION_RELEASE.md), including the selected four countries and build 10 gates. Older build 7 verification below remains historical.
+
 ## Current state
 
-A signed Android release candidate is prepared locally. **Not published or uploaded.** The previous candidate used https://recall-six-azure.vercel.app. The custom domain https://recall.touchmarkdes.com is now verified over HTTPS; build 7 uses it.
+Build 10 is prepared and verified locally. Earlier versions were released to Internal testing by the owner. Production submission/publication is not performed by this preparation. The custom-domain production API is https://recall.touchmarkdes.com.
 
 The account-deletion backend and public pages are deployed and respond successfully on the custom domain. The build helper blocks a normal release if `/api/me` lacks `accountDeletionAvailable:true`; `--candidate` explicitly allows a staged build for testing. This flag is a code capability check, not proof that production schema cascades were verified.
 

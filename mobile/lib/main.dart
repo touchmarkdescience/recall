@@ -1000,6 +1000,10 @@ class ActionCard extends StatelessWidget {
   void open(BuildContext context) => showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.sizeOf(context).height * .9,
+    ),
     builder: (sheet) => SafeArea(
       top: false,
       child: SingleChildScrollView(
@@ -1014,9 +1018,9 @@ class ActionCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              action.title,
+              actionDisplayText(action.title),
               style: const TextStyle(
-                fontSize: 25,
+                fontSize: 19,
                 fontWeight: FontWeight.w700,
                 color: ink,
               ),
@@ -1042,6 +1046,28 @@ class ActionCard extends StatelessWidget {
                   : 'Pending',
               style: const TextStyle(color: ink),
             ),
+            if (action.originalNote.isNotEmpty &&
+                action.originalNote != actionDisplayText(action.title))
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text(
+                  'Original note',
+                  style: TextStyle(fontSize: 16, color: ink),
+                ),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: SelectableText(
+                      action.originalNote,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        height: 1.45,
+                        color: ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             if (action.status == 'pending' && onEdit != null) ...[
               const SizedBox(height: 18),
               OutlinedButton.icon(
@@ -1132,7 +1158,7 @@ class ActionCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  action.title,
+                  actionDisplayText(action.title),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1641,6 +1667,33 @@ class PeoplePage extends StatelessWidget {
     children: [
       const PageHead('In context', 'People'),
       const SizedBox(height: 24),
+      Card(
+        color: Colors.white,
+        child: ListTile(
+          minVerticalPadding: 18,
+          leading: const CircleAvatar(
+            backgroundColor: mint,
+            child: Text('G', style: TextStyle(color: ink)),
+          ),
+          title: const Text('Guest'),
+          subtitle: Text(
+            '${actions.where((a) => a.contactName.trim().isEmpty && a.status == 'pending').length} open actions · No name',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PersonPage(
+                api: api,
+                contact: RecallContact({'id': '', 'name': 'Guest'}),
+                actions: actions
+                    .where((a) => a.contactName.trim().isEmpty)
+                    .toList(),
+              ),
+            ),
+          ),
+        ),
+      ),
       if (contacts.isEmpty)
         const _EmptyCard(
           'Names are optional. People you add will appear here.',
@@ -1716,7 +1769,11 @@ class PersonPage extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         FutureBuilder<Map<String, dynamic>>(
-          future: api.get('contact?id=${Uri.encodeQueryComponent(contact.id)}'),
+          future: api.get(
+            contact.id.isEmpty
+                ? 'dashboard'
+                : 'contact?id=${Uri.encodeQueryComponent(contact.id)}',
+          ),
           builder: (context, snapshot) {
             if (!snapshot.hasData) {
               return snapshot.hasError
@@ -1726,7 +1783,13 @@ class PersonPage extends StatelessWidget {
                     )
                   : const _EmptyCard('Loading conversations…');
             }
-            final entries = snapshot.data!['interactions'] as List? ?? [];
+            final entries = (snapshot.data!['interactions'] as List? ?? [])
+                .where(
+                  (entry) =>
+                      contact.id.isNotEmpty ||
+                      (entry['contactId'] ?? '').toString().isEmpty,
+                )
+                .toList();
             if (entries.isEmpty) {
               return const _EmptyCard('No conversations yet.');
             }
@@ -2418,10 +2481,12 @@ class _ReviewPageState extends State<ReviewPage> {
   final manualNotes = TextEditingController();
   late String transcriptText;
   bool needsExtraction = false;
+  String? timingNote;
   @override
   void initState() {
     super.initState();
     transcriptText = widget.transcript;
+    timingNote = widget.extracted['timingNote'] as String?;
     person = TextEditingController(
       text: '${widget.extracted['contactName'] ?? ''}',
     );
@@ -2430,9 +2495,14 @@ class _ReviewPageState extends State<ReviewPage> {
     );
     final match = widget.extracted['matchedContactId'] as String?;
     matchedId = widget.contacts.any((c) => c.id == match) ? match : null;
-    drafts = (widget.extracted['actions'] as List? ?? [])
-        .map((v) => _Draft(Map<String, dynamic>.from(v as Map)))
-        .toList();
+    drafts =
+        (widget.existingAction == null
+                ? expandReminderActions(
+                    widget.extracted['actions'] as List? ?? [],
+                  )
+                : (widget.extracted['actions'] as List? ?? []))
+            .map((v) => _Draft(Map<String, dynamic>.from(v as Map)))
+            .toList();
   }
 
   @override
@@ -2666,10 +2736,11 @@ class _ReviewPageState extends State<ReviewPage> {
         }
         drafts.clear();
         drafts.addAll(
-          (result['actions'] as List? ?? []).map(
-            (item) => _Draft(Map<String, dynamic>.from(item as Map)),
-          ),
+          expandReminderActions(
+            result['actions'] as List? ?? [],
+          ).map((item) => _Draft(Map<String, dynamic>.from(item as Map))),
         );
+        timingNote = result['timingNote'] as String?;
         person.text = '${result['contactName'] ?? ''}';
         summary.text = '${result['summary'] ?? transcriptText}';
         final matched = result['matchedContactId'] as String?;
@@ -2693,41 +2764,111 @@ class _ReviewPageState extends State<ReviewPage> {
   Future<void> editReminder(_Draft draft) async {
     final value = await showModalBottomSheet<int>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (sheet) => SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: Text(
-                'When to remind you',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: ink,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'When to remind you',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: ink,
+                  ),
                 ),
               ),
-            ),
-            for (final minutes in [0, 15, 30, 60, 1440])
               ListTile(
-                title: Text(reminderLabel(minutes)),
-                trailing: draft.reminderMinutes == minutes
-                    ? const Icon(Icons.check, color: ink)
-                    : null,
-                onTap: () => Navigator.pop(sheet, minutes),
+                leading: const Icon(Icons.add_alarm),
+                title: const Text('Custom time'),
+                subtitle: const Text('Choose date and time'),
+                onTap: () => Navigator.pop(sheet, -1),
               ),
-          ],
+              for (final minutes in [0, 10, 15, 30, 60, 1440])
+                ListTile(
+                  title: Text(reminderLabel(minutes)),
+                  trailing: draft.reminderMinutes == minutes
+                      ? const Icon(Icons.check, color: ink)
+                      : null,
+                  onTap: () => Navigator.pop(sheet, minutes),
+                ),
+            ],
+          ),
         ),
       ),
     );
-    if (value != null && mounted) setState(() => draft.reminderMinutes = value);
+    if ((value == -1 || value == 15) && mounted) {
+      final extra = _Draft({
+        'kind': 'reminder',
+        'title': 'Prepare: ${draft.title.text}'.substring(
+          0,
+          math.min(500, draft.title.text.length + 9),
+        ),
+      });
+      if (value == 15 && draft.dueAt != null) {
+        extra.dueAt = draft.dueAt!.subtract(const Duration(minutes: 15));
+        extra.timeSpecified = true;
+        if (!extra.dueAt!.isAfter(DateTime.now())) {
+          extra.dispose();
+          setState(
+            () => error =
+                'The 15-minute advance time has passed. Choose a separate future reminder.',
+          );
+          return;
+        }
+      } else {
+        await pickDate(extra);
+      }
+      if (!mounted || extra.dueAt == null) {
+        extra.dispose();
+        return;
+      }
+      if (widget.existingAction == null) {
+        setState(() {
+          if (value == 15) draft.reminderMinutes = 0;
+          drafts.add(extra);
+        });
+      } else {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ReviewPage(
+              api: widget.api,
+              manual: true,
+              transcript: '',
+              contacts: widget.contacts,
+              onSaved: widget.onSaved,
+              extracted: {
+                'contactName': personLabel == 'Guest' ? '' : personLabel,
+                'matchedContactId': matchedId,
+                'actions': [
+                  {
+                    'kind': 'reminder',
+                    'title': extra.title.text,
+                    'dueAt': extra.dueAt!.toIso8601String(),
+                    'timeSpecified': true,
+                  },
+                ],
+              },
+            ),
+          ),
+        );
+        extra.dispose();
+      }
+    } else if (value != null && mounted) {
+      setState(() => draft.reminderMinutes = value);
+    }
   }
 
   String reminderLabel(int minutes) => switch (minutes) {
     0 => 'At due time',
-    60 => '1 hour before',
-    1440 => '1 day before',
+    60 => '60 minutes before',
+    1440 => '24 hours before (1 day)',
     _ => '$minutes min before',
   };
   String reminderValue(_Draft draft) {
@@ -2744,7 +2885,7 @@ class _ReviewPageState extends State<ReviewPage> {
       );
       return 'At due time · ${DateFormat('h:mm a').format(due)} (advance time passed)';
     }
-    return '$label · ${DateFormat('h:mm a').format(at)}';
+    return '$label · ${DateFormat('d MMM · h:mm a').format(at)}';
   }
 
   String get personLabel => matchedId == null
@@ -2781,6 +2922,13 @@ class _ReviewPageState extends State<ReviewPage> {
     )) {
       setState(
         () => error = 'Choose a date and time for every action before saving.',
+      );
+      return;
+    }
+    if (drafts.any((d) => ![0, 10, 30, 60, 1440].contains(d.reminderMinutes))) {
+      setState(
+        () => error =
+            'Choose a reminder preset or add a separate timed reminder. Your text is kept.',
       );
       return;
     }
@@ -2937,8 +3085,6 @@ class _ReviewPageState extends State<ReviewPage> {
                         const SizedBox(height: 14),
                         Text(
                           transcriptText,
-                          maxLines: 4,
-                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 18,
                             height: 1.4,
@@ -2955,6 +3101,14 @@ class _ReviewPageState extends State<ReviewPage> {
                     ),
                   ),
                 const SizedBox(height: 18),
+                if (timingNote != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      timingNote!,
+                      style: const TextStyle(color: muted, fontSize: 14),
+                    ),
+                  ),
                 RecallDetailRow(
                   icon: Icons.person_outline_rounded,
                   label: 'Person',
@@ -3000,13 +3154,14 @@ class _ReviewPageState extends State<ReviewPage> {
                         ),
                       ],
                     ),
-                  if (!widget.manual)
+                  if (!widget.manual || entry.key > 0)
                     RecallDetailRow(
                       icon: Icons.task_alt,
                       label: 'Action',
+                      expandedValue: true,
                       value: entry.value.title.text.isEmpty
                           ? 'Add details'
-                          : entry.value.title.text,
+                          : actionDisplayText(entry.value.title.text),
                       onTap: busy ? null : () => editAction(entry.value),
                     ),
                   if (entry.value.choices.length > 1)

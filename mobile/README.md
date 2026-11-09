@@ -54,3 +54,7 @@ See [REMINDER_VERIFICATION.md](REMINDER_VERIFICATION.md) for the actual online/o
 ## Version 1.0.6 (build 8)
 
 See [release notes](release/CHANGELOG-1.0.6.md) for the native speech retention and explicit reminder timing fixes, verification, and physical-device checks. Android build 8 has been released to internal testing by the owner.
+
+## Version 1.0.7 (build 9)
+
+See [release notes](release/CHANGELOG-1.0.7.md) for long-note layout, Guest grouping, independent preparation reminders, casual same-day clocks and the fifteen-minute save compatibility fix. Separate preparation reminders are ordinary timed actions, so no new database column or constraint migration is needed. Both the event and its separate reminder are shown before saving and can notify. The optional `originalNote` dashboard field requires the accompanying backend update to expose complete linked transcripts in action details.

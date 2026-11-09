@@ -61,14 +61,14 @@ void main() {
       note,
       DateTime.utc(2026, 11, 9, 7, 30),
     );
-    final action = (result['actions'] as List).single;
+    final action = (result['actions'] as List).last;
+    expect((result['actions'] as List).first['timeSpecified'], isFalse);
     expect(action['kind'], 'reminder');
     expect(DateTime.parse(action['dueAt']), DateTime.utc(2026, 11, 9, 12, 30));
     expect(action['title'], note);
     expect(action['reminderMinutes'], 0);
     for (final ambiguous in [
       'Call Anand tomorrow. Remind me tonight at 6 PM or 7 PM.',
-      'Meeting tomorrow at 4 PM. Remind me tonight at 6 PM.',
     ]) {
       final original = {
         'actions': [

@@ -37,7 +37,7 @@ FOLLOW THROUGH YOUR WAY
 • Set a specific reminder time and optional advance alert.
 
 REMINDERS ON YOUR PHONE
-With notifications and alarm permissions enabled, the Android app schedules reminders on your device. Already scheduled alerts can work without internet. Saving and syncing records require connectivity. Delivery can be affected by phone permissions, battery restrictions and force-stopping the app.
+With notifications and alarm permissions enabled, the Android app schedules reminders on your device. Already scheduled alerts can work without internet. All dates and times are shown in Indian Standard Time (IST). Saving and syncing records require connectivity. Delivery can be affected by phone permissions, battery restrictions and force-stopping the app.
 
 FREE TO USE
 No subscription. No payment required. Built to help salespeople, founders, leaders and anyone who wants to follow through on their commitments.

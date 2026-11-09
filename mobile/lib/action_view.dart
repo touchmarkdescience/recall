@@ -52,3 +52,24 @@ class SpeechSegment {
   String render(String words) =>
       [prefix.trim(), words.trim()].where((s) => s.isNotEmpty).join(' ');
 }
+
+// Display-only repair for legacy recognizer output repeating the complete note.
+// Original stored words remain unchanged and editable.
+String actionDisplayText(String text) {
+  final words = text.trim().split(RegExp(r'\s+'));
+  String normalize(String word) =>
+      word.toLowerCase().replaceAll(RegExp(r"[^a-z0-9]"), '');
+  while (words.length >= 12 && words.length.isEven) {
+    final half = words.length ~/ 2;
+    var same = true;
+    for (var i = 0; i < half; i++) {
+      if (normalize(words[i]) != normalize(words[i + half])) {
+        same = false;
+        break;
+      }
+    }
+    if (!same) break;
+    words.removeRange(half, words.length);
+  }
+  return words.join(' ');
+}

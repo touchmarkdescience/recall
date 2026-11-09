@@ -141,6 +141,7 @@ class RecallDetailRow extends StatelessWidget {
   final IconData icon;
   final String label, value;
   final String? subtitle;
+  final bool expandedValue;
   final VoidCallback? onTap;
   const RecallDetailRow({
     super.key,
@@ -148,6 +149,7 @@ class RecallDetailRow extends StatelessWidget {
     required this.label,
     required this.value,
     this.subtitle,
+    this.expandedValue = false,
     this.onTap,
   });
   @override
@@ -164,61 +166,102 @@ class RecallDetailRow extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: recallMint,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: recallInk, size: 24),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 4,
-                child: Column(
+          child: expandedValue
+              ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        Icon(icon, color: recallInk, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            label,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: recallInk,
+                            ),
+                          ),
+                        ),
+                        if (onTap != null)
+                          const Icon(
+                            Icons.edit_outlined,
+                            size: 20,
+                            color: recallInk,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     Text(
-                      label,
+                      value,
                       style: const TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                        height: 1.45,
                         color: recallInk,
                       ),
                     ),
-                    if (subtitle != null)
-                      Text(
-                        subtitle!,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: recallMint,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(icon, color: recallInk, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            label,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: recallInk,
+                            ),
+                          ),
+                          if (subtitle != null)
+                            Text(
+                              subtitle!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xff728b80),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 5,
+                      child: Text(
+                        value,
+                        textAlign: TextAlign.right,
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xff728b80),
+                          fontSize: 15,
+                          height: 1.3,
+                          color: recallInk,
                         ),
                       ),
+                    ),
+                    if (onTap != null) ...[
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.chevron_right,
+                        color: recallInk,
+                        size: 20,
+                      ),
+                    ],
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 5,
-                child: Text(
-                  value,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    height: 1.3,
-                    color: recallInk,
-                  ),
-                ),
-              ),
-              if (onTap != null) ...[
-                const SizedBox(width: 6),
-                const Icon(Icons.chevron_right, color: recallInk, size: 20),
-              ],
-            ],
-          ),
         ),
       ),
     ),

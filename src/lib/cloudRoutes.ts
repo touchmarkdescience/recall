@@ -24,7 +24,7 @@ const originOkay=(req:NextRequest)=>{const origin=req.headers.get('origin');if(!
 async function onlyMine(){const user=await currentUser();if(!user)throw new Error('Unauthorized');return user}
 const contactView=(c:Contact)=>({id:c.id,name:c.name,phone:c.phone,createdAt:c.created_at});
 const interactionView=(i:Interaction,c:Contact|undefined)=>({id:i.id,contactId:i.contact_id||'',contactName:c?.name||'',summary:i.summary,transcript:i.transcript,occurredAt:i.occurred_at});
-const actionView=(a:Action,c:Contact|undefined,summary?:string)=>({id:a.id,contactId:a.contact_id||'',contactName:c?.name||'',kind:a.kind,title:a.title,dueAt:a.due_at,timeSpecified:a.time_specified,durationMinutes:a.duration_minutes,reminderMinutes:a.reminder_minutes,status:a.status,createdAt:a.created_at,...(summary===undefined?{}:{conversationSummary:summary})});
+const actionView=(a:Action,c:Contact|undefined,summary?:string,originalNote?:string)=>({id:a.id,contactId:a.contact_id||'',contactName:c?.name||'',kind:a.kind,title:a.title,dueAt:a.due_at,timeSpecified:a.time_specified,durationMinutes:a.duration_minutes,reminderMinutes:a.reminder_minutes,status:a.status,createdAt:a.created_at,...(summary===undefined?{}:{conversationSummary:summary}),...(originalNote===undefined?{}:{originalNote})});
 async function contactsFor(userId:string){return dataOrThrow(await cloud().from('recall_contacts').select('id,name,phone,created_at').eq('user_id',userId).order('name')) as Contact[]}
 
 export async function cloudGET(req:NextRequest,{params}:Context){
@@ -40,8 +40,15 @@ export async function cloudGET(req:NextRequest,{params}:Context){
         cloud().from('recall_actions').select('*').eq('user_id',user.id).order('due_at',{ascending:true,nullsFirst:false}).limit(1000).then(dataOrThrow) as Promise<Action[]>,
         cloud().from('recall_interactions').select('id,contact_id,summary,transcript,occurred_at,created_at').eq('user_id',user.id).order('occurred_at',{ascending:false}).limit(30).then(dataOrThrow) as Promise<Interaction[]>,
       ]);
+      const notes=new Map(interactions.map(i=>[i.id,i.transcript]));
+      const missing=[...new Set(actions.map(a=>a.interaction_id).filter((id):id is string=>!!id&&!notes.has(id)))];
+      // Small batches keep PostgREST URLs bounded, including older action notes.
+      for(let offset=0;offset<missing.length;offset+=100){
+        const linked=dataOrThrow(await cloud().from('recall_interactions').select('id,transcript').eq('user_id',user.id).in('id',missing.slice(offset,offset+100))) as {id:string;transcript:string}[];
+        for(const note of linked)notes.set(note.id,note.transcript);
+      }
       const names=new Map(contacts.map(c=>[c.id,c]));
-      return response({contacts:contacts.map(contactView),actions:actions.map(a=>actionView(a,a.contact_id?names.get(a.contact_id):undefined)),interactions:interactions.map(i=>interactionView(i,i.contact_id?names.get(i.contact_id):undefined))});
+      return response({contacts:contacts.map(contactView),actions:actions.map(a=>actionView(a,a.contact_id?names.get(a.contact_id):undefined,undefined,notes.get(a.interaction_id||'')||'')),interactions:interactions.map(i=>interactionView(i,i.contact_id?names.get(i.contact_id):undefined))});
     }
     if(path==='contact'){
       const id=req.nextUrl.searchParams.get('id')||'';

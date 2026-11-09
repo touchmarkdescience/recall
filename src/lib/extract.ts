@@ -6,7 +6,7 @@ export type Extraction = { contactName: string; topic: string; summary: string; 
 const zone='Asia/Kolkata';
 const normalizeTime=(text:string)=>text.replace(/\b([ap])\.?m\.?/gi,'$1m').replace(/(\d{1,2})\.(\d{2})\b/g,'$1:$2');
 const explicitTime=/\b(?:(?:at|by|around|is)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(?:at|by|around)\s+(\d{1,2})(?::(\d{2}))?\b|\b(\d{1,2}):(\d{2})\b/gi;
-function timeOf(text:string){const m=[...normalizeTime(text).matchAll(explicitTime)][0];if(!m)return null;const hour=Number(m[1]??m[4]??m[6]),minute=Number(m[2]??m[5]??m[7]??0),period=m[3]?.toLowerCase();return {hour:period?hour%12+(period==='pm'?12:0):hour,minute,valid:minute<60&&hour<(period?13:24)&&hour>=(period?1:0)};}
+function timeOf(text:string){const m=[...normalizeTime(text).matchAll(explicitTime)][0];if(!m)return null;const hour=Number(m[1]??m[4]??m[6]),minute=Number(m[2]??m[5]??m[7]??0),period=m[3]?.toLowerCase();return {hour:period?hour%12+(period==='pm'?12:0):hour,minute,period,valid:minute<60&&hour<(period?13:24)&&hour>=(period?1:0)};}
 const months=['january','february','march','april','may','june','july','august','september','october','november','december'];
 function relativeDelay(text:string){
   const matches=[...text.toLowerCase().matchAll(/\b(?:in\s+(?:another\s+)?|after\s+|another\s+)(\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|sixty)\s*(hours?|hrs?|minutes?|mins?)\b/g)];
@@ -38,7 +38,13 @@ export function parseIST(phrase: string, now=new Date()): string | null {
   const named=dayFirst&&months.findIndex(month=>month.startsWith(dayFirst[2]))>=0?{day:Number(dayFirst[1]),month:months.findIndex(month=>month.startsWith(dayFirst[2]))+1,year:Number(dayFirst[3]||base.year)}:monthFirst&&months.findIndex(month=>month.startsWith(monthFirst[1]))>=0?{day:Number(monthFirst[2]),month:months.findIndex(month=>month.startsWith(monthFirst[1]))+1,year:Number(monthFirst[3]||base.year)}:null;
   if(named||d) {
     const date=named?DateTime.fromObject(named,{zone}):d||base;
-    const hour=spoken?.hour??(/afternoon/.test(lower)?15:/evening/.test(lower)?18:9);
+    let hour=spoken?.hour??(/afternoon/.test(lower)?15:/evening/.test(lower)?18:9);
+    if(spoken&&!spoken.period&&spoken.hour>=1&&spoken.hour<=12&&/\btoday\b/.test(lower)&&!/\b(?:tomorrow|morning|afternoon|evening|tonight|or|versus|instead)\b/.test(lower)) {
+      const candidates=[spoken.hour%12,spoken.hour%12+12].map(hour=>date.set({hour,minute:spoken.minute,second:0,millisecond:0}));
+      const next=candidates.find(at=>at>base);
+      if(next)hour=next.hour;
+      else return null;
+    }
     return date.set({hour,minute:spoken?.minute??0,second:0,millisecond:0}).toUTC().toISO();
   }
   const reference=new Date(base.year,base.month-1,base.day,base.hour,base.minute);
@@ -76,17 +82,44 @@ export function templateExtract(transcript: string, now=new Date()): Extraction 
   const topic=title.match(/\babout\s+(.+)$/i)?.[1]?.trim()||'';
   return {contactName,topic,summary:clean,actions:[{kind,title,dueAt:ambiguous?null:when?parseIST(when,now):null,timeSpecified:times.length>0||!!relativeDelay(when),timeChoices:ambiguous?choices:undefined}],mode:'Local rules'};
 }
+// Keep an explicitly timed preparation task separate from its later meeting.
+function preparationExtract(clean:string,now:Date):Extraction|null {
+  const marker=/\b(?:our meeting|the meeting|meeting is scheduled|we (?:are|have) (?:a )?meeting)\b/i.exec(clean);
+  if(!marker||marker.index===0||/\b(?:versus|instead)\b|\bor\s+\d/i.test(clean))return null;
+  const prep=clean.slice(0,marker.index).trim(),event=clean.slice(marker.index).trim();
+  if(!/\b(?:prepare|send|share|document|PPT|presentation)\b/i.test(prep))return null;
+  function dated(part:string){
+    const times=[...normalizeTime(part).matchAll(explicitTime)];
+    const days=[...part.matchAll(/\b(day after tomorrow|tomorrow|today|tonight)\b/gi)];
+    if(times.length!==1||!days.length)return null;
+    const prior=days.filter(d=>d.index!<=times[0].index!);
+    return parseIST(`${(prior.at(-1)||days[0])[0]} ${times[0][0]}`,now);
+  }
+  const prepAt=dated(prep),eventAt=dated(event);
+  if(!prepAt||!eventAt)return null;
+  const contactName=clean.match(/\b(?:met(?: with)?|discussion with|spoke (?:to|with))\s+((?:(?:Mr|Mrs|Ms|Dr)\.?\s+)?[\p{L}'-]+)(?=\s+(?:sir|from|regarding|about|he|she)\b|[.,])/iu)?.[1]||'';
+  return {contactName,topic:'',summary:clean,mode:'Local rules',actions:[
+    {kind:'reminder',title:prep.slice(0,500),dueAt:prepAt,timeSpecified:true,reminderMinutes:0},
+    {kind:'meeting',title:event.slice(0,500),dueAt:eventAt,timeSpecified:true,reminderMinutes:0}
+  ]};
+}
 export function naturalExtract(transcript: string, now=new Date()): Extraction | null {
   const clean=transcript.trim();
-  const reminder=/\b(?:remind|remain) me\b/i.exec(clean);
+  const preparation=preparationExtract(clean,now);
+  if(preparation)return preparation;
+  const reminder=/\b(?:(?:remind|remain) me|(?:set|need|add|give)(?:\s+me)?\s+(?:a\s+)?reminder(?:\s+for)?)\b/i.exec(clean);
   if(!reminder) return null;
   const named=clean.match(/^(?:hey,?\s*)?name\s*:?(?:\s+is)?\s+([\p{L}'-]+(?:\s+[\p{L}'-]+){0,2})\s*[.;,]/iu)?.[1]||'';
-  const person=clean.match(/\b(?:spoke (?:to|with)|met(?: with)?|called|call|meeting(?: with)?|meet with)\s+((?:(?:Mr|Mrs|Ms|Dr|Prof)\.?\s+)?(?:[\p{L}]\.\s+)?[\p{L}'-]+(?:\s+(?!(?:on|at|by|about|for|to|tomorrow|today|next|in|after|another|and|or|we|from|he|she|they|who)\b)[\p{L}'-]+){0,2})/iu)?.[1]?.trim()||'';
+  const person=clean.match(/\b(?:spoke (?:to|with)|met(?: with)?|discussion with|called|call(?: with)?|meeting(?: with)?|meet with)\s+((?:(?:Mr|Mrs|Ms|Dr|Prof)\.?\s+)?(?:[\p{L}]\.\s+)?[\p{L}'-]+(?:\s+(?!(?:on|at|by|about|for|to|tomorrow|today|next|in|after|another|and|or|we|from|he|she|they|who|sir|regarding)\b)[\p{L}'-]+){0,2})/iu)?.[1]?.trim()||'';
   const contactName=(named||person).replace(/\s+/g,' ').trim();
   const topic=clean.match(/\babout\s+(.+?)(?=\s*(?:[;,.]|\bremind\b|\bor\b|$))/i)?.[1]?.trim()||'';
   if(reminder.index===0||/^hey,?\s*(?:remind|remain) me\b/i.test(clean)) {
     const dueAt=parseIST(clean,now);
-    return {contactName,topic,summary:clean,actions:[{kind:'reminder',title:clean.replace(/^hey,?\s*/i,''),dueAt,timeSpecified:hasTimedIntent(clean)}],mode:'Local rules'};
+    const lead=clean.match(/\b(\d+|fifteen)\s*(?:minutes?|mins?)\s+before\b/i);
+    const minutes=lead?(lead[1].toLowerCase()==='fifteen'?15:Number(lead[1])):0;
+    const actions:DraftAction[]=[{kind:'reminder',title:clean.replace(/^hey,?\s*/i,''),dueAt,timeSpecified:hasTimedIntent(clean)}];
+    if(dueAt&&minutes>0&&minutes<=525600&&!/\b(?:or|versus|instead)\b/i.test(clean))actions.push({kind:'reminder',title:`Prepare: ${clean}`.slice(0,500),dueAt:new Date(Date.parse(dueAt)-minutes*60000).toISOString(),timeSpecified:true,reminderMinutes:0});
+    return {contactName,topic,summary:clean,actions,mode:'Local rules'};
   }
   const event=clean.slice(0,reminder.index).replace(/(?:[.;!?]\s*)+$/,'').replace(/^(?:hey,?\s*)?name\s*:?(?:\s+is)?\s+[^.;!?]+[.;!?]\s*/i,'').replace(/^(?:hey,?\s*)?i\s+(?:just\s+)?(?:spoke (?:to|with)|called)\s+[^.;!?]+[.;!?]\s*/i,'').trim();
   if(!event) return null;
@@ -106,7 +139,11 @@ export function naturalExtract(transcript: string, now=new Date()): Extraction |
       const alert:DraftAction={kind:'reminder',title:clean.slice(0,500),dueAt:alertAt,timeSpecified:true,reminderMinutes:0};
       // If no event clock was spoken, do not invent a 9 AM appointment.
       // The full instruction remains in the reminder title and original note.
-      if(eventTimes.length===0)return {contactName,topic,summary:clean,actions:[alert],mode:'Local rules'};
+      if(eventTimes.length===0){
+        const hasFutureEvent=/\b(?:tomorrow|day after tomorrow)\b/i.test(event)&&/\b(?:call|meeting|meet|discuss)\b/i.test(event);
+        const kind=/\b(?:meeting|meet|discuss)\b/i.test(event)?'meeting':'follow_up';
+        return {contactName,topic,summary:clean,actions:[...(hasFutureEvent?[{kind,title:event.slice(0,500),dueAt:null,timeSpecified:false,reminderMinutes:0} as DraftAction]:[]),alert],mode:'Local rules'};
+      }
       const eventAt=parseIST(event,now);
       if(eventAt) {
         const offset=(Date.parse(eventAt)-Date.parse(alertAt))/60000;
@@ -129,7 +166,7 @@ export function localExtract(transcript: string, now=new Date()): Extraction {
   const natural=naturalExtract(clean,now);
   if(natural) return natural;
   const normalized=clean.replace(/\b(Dr|Mr|Mrs|Ms|Prof)\.(?=\s)/gi,'$1');
-  const match=normalized.match(/\b(?:spoke (?:to|with)|talked (?:to|with)|met(?: with)?|called|call|meeting(?: with)?|meet with|follow up with)\s+((?:(?:Dr|Mr|Mrs|Ms|Prof)\s+)?[\p{L}'-]+(?:\s+[\p{L}'-]+){0,2}?)(?=\s+(?:on|at|by|about|for|to|tomorrow|today|next|in|after|another|and|or)\b|[.,;!?]|$)/iu);
+  const match=normalized.match(/\b(?:spoke (?:to|with)|talked (?:to|with)|met(?: with)?|called|call(?: with)?|meeting(?: with)?|meet with|follow up with)\s+((?:(?:Dr|Mr|Mrs|Ms|Prof)\s+)?[\p{L}'-]+(?:\s+[\p{L}'-]+){0,2}?)(?=\s+(?:on|at|by|about|for|to|tomorrow|today|next|in|after|another|and|or)\b|[.,;!?]|$)/iu);
   const candidate=match?.[1]?.trim()||'';
   const contactName=candidate&&candidate[0]===candidate[0].toLocaleUpperCase()&&!/^(today|tomorrow|client|customer|prospect|team|someone|anyone)$/i.test(candidate)?candidate:'';
   const topic=clean.match(/\babout\s+(.+?)(?=\s*(?:[;,.]|\bremind\b|\bor\b|$))/i)?.[1]?.trim()||'';
