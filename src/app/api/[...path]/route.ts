@@ -1,3 +1,4 @@
+import { protectRequest, protectAuth, protectUserBudget, readJsonLimited, securityResponse } from '@/lib/abuse';
 import { validReminder } from '@/lib/reminders';
 import { safeFailure } from '@/lib/serverErrors';
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,10 +20,11 @@ const error=(message:string,status=400)=>json({error:message},status);
 const now=()=>new Date().toISOString();
 const clean=(x:unknown)=>String(x??'').trim();
 const onlyMine=async()=>{const user=await currentUser(); if(!user) throw new Error('Unauthorized'); return user;};
-const asError=(e:unknown)=>e instanceof Error&&e.message==='Unauthorized'?error('Unauthorized',401):safeFailure(e,'/api/[...path]');
+const asError=(e:unknown)=>securityResponse(e)||(e instanceof Error&&e.message==='Unauthorized'?error('Unauthorized',401):safeFailure(e,'/api/[...path]'));
 function sameOrigin(req:NextRequest) { const origin=req.headers.get('origin'); if(!origin)return true;try{return new URL(origin).host===req.headers.get('host')}catch{return false} }
 
 export async function GET(req:NextRequest,{params}:Context) {
+  try{await protectRequest(req);}catch(error){return asError(error);}
   if(cloudConfigured())return cloudGET(req,{params});
   if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
   try {
@@ -53,10 +55,11 @@ export async function POST(req:NextRequest,context:Context){
     const result=await handlePOST(req,context);
     if(!saving||result.ok)return result;
     const failure=await result.json();
+    if(failure.code==='SECURITY_CHECK')return NextResponse.json(failure,{status:result.status,headers:result.headers});
     if(result.status===400&&failure.error==='Choose a reminder offset from the list.')return NextResponse.json({error:'Choose an advance preset, or add a separate reminder at any date and time. Your text is kept.'},{status:400});
     if(failure.reference)return NextResponse.json({...failure,error:"Couldn't save. Your text is kept, please retry."},{status:result.status});
     return safeFailure(failure.error,'/api/save',result.status,true,req.headers.get('x-recall-reference'));
-  }catch(cause){return safeFailure(cause,saving?'/api/save':'/api/[...path]',500,saving,req.headers.get('x-recall-reference'))}
+  }catch(cause){return securityResponse(cause)||safeFailure(cause,saving?'/api/save':'/api/[...path]',500,saving,req.headers.get('x-recall-reference'))}
 }
 
 async function handlePOST(req:NextRequest,{params}:Context) {
@@ -65,14 +68,17 @@ async function handlePOST(req:NextRequest,{params}:Context) {
   try {
     if(!sameOrigin(req)) return error('Invalid origin',403);
     const path=(await params).path.join('/');
-    const body=await req.json();
+    await protectRequest(req);
+    const body=await readJsonLimited(req);
+    await protectAuth(req,path,body);
     if(path==='register') {
       const email=clean(body.email).toLowerCase(), name=clean(body.name), password=String(body.password||'');
-      if(!/^\S+@\S+\.\S+$/.test(email)||!name||password.length<8) return error('Enter a name, valid email, and password of at least 8 characters.');
+      if(!/^\S+@\S+\.\S+$/.test(email)||!name||name.length>120||email.length>254||password.length>1024||password.length<8) return error('Enter a name, valid email, and password of at least 8 characters.');
       if(row('SELECT id FROM users WHERE email=?',email)) return error('An account with this email already exists.');
       const id=randomUUID();run('INSERT INTO users(id,email,name,password_hash,created_at) VALUES(?,?,?,?,?)',id,email,name,passwordHash(password),now());const token=await setSession(id);return json({ok:true,...(req.headers.get('x-recall-client')==='native'?{token}:{})});
     }
     if(path==='login') {
+      if(String(body.email||'').length>254||String(body.password||'').length>1024)return error('Email or password is incorrect.',401);
       const email=clean(body.email).toLowerCase(), password=String(body.password||'');
       const user=row<{id:string;password_hash:string}>('SELECT id,password_hash FROM users WHERE email=?',email);
       if(!user||!passwordValid(password,user.password_hash)) return error('Email or password is incorrect.',401);
@@ -83,6 +89,7 @@ async function handlePOST(req:NextRequest,{params}:Context) {
     if(path==='extract') {
       const transcript=clean(body.transcript);
       if(transcript.length<3||transcript.length>10000) return error('Enter a note between 3 and 10,000 characters.');
+      await protectUserBudget(user.id,'extract');
       const result=await extract(transcript);
       const contacts=rows<{id:string;name:string}>('SELECT id,name FROM contacts WHERE user_id=?',user.id);
       const normalized=(s:string)=>s.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
@@ -133,6 +140,7 @@ async function handlePOST(req:NextRequest,{params}:Context) {
       if(!validReminder(reminderMinutes))return error('Choose a reminder offset from the list.');
       const title=body.title===undefined?current.title:clean(body.title);
       const kind=body.kind===undefined?current.kind:clean(body.kind);
+      if(body.dueAt!==undefined&&body.dueAt!==null&&typeof body.dueAt!=='string')return error('Choose a valid date and time.');
       const dueAt=body.dueAt===undefined?current.dueAt:(body.dueAt||null);
       const timeSpecified=body.timeSpecified===undefined?current.timeSpecified:body.timeSpecified===false?0:1;
       if(!title||title.length>500||!['follow_up','reminder','meeting'].includes(kind)||(dueAt&&!DateTime.fromISO(dueAt).isValid))return error('Enter a valid title, type and date.');
@@ -162,14 +170,14 @@ async function handlePOST(req:NextRequest,{params}:Context) {
     }
     if(path==='sheet/sync')return json(await flushSheetOutbox(user.id));
     if(path==='ask') {
-      const question=clean(body.question),contactId=clean(body.contactId);
-      if(!question) return error('Ask a question.');
+      const question=clean(body.question),contactId=clean(body.contactId);if(question.length>2000)return error('Keep questions under 2,000 characters.');
+      if(!question) return error('Ask a question.');await protectUserBudget(user.id,'ask');
       const contact=contactId?row<{id:string;name:string}>('SELECT id,name FROM contacts WHERE id=? AND user_id=?',contactId,user.id):null;
       if(contactId&&!contact) return error('Contact not found',404);
       const interactions=contact?rows<{summary:string;occurredAt:string}>('SELECT summary,occurred_at AS occurredAt FROM interactions WHERE user_id=? AND contact_id=? ORDER BY occurred_at DESC LIMIT 15',user.id,contact.id):rows<{summary:string;occurredAt:string}>('SELECT summary,occurred_at AS occurredAt FROM interactions WHERE user_id=? ORDER BY occurred_at DESC LIMIT 15',user.id);
       const actions=contact?rows<{title:string;dueAt:string|null;status:string}>('SELECT title,due_at AS dueAt,status FROM actions WHERE user_id=? AND contact_id=? ORDER BY created_at DESC LIMIT 30',user.id,contact.id):rows<{title:string;dueAt:string|null;status:string}>('SELECT title,due_at AS dueAt,status FROM actions WHERE user_id=? ORDER BY created_at DESC LIMIT 30',user.id);
       if(process.env.OPENAI_API_KEY) {
-        const response=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4.1-mini',messages:[{role:'system',content:'Answer only using the supplied account records. Mention when information is absent. Dates are in Asia/Kolkata. Be concise.'},{role:'user',content:JSON.stringify({question,contact:contact?.name||null,interactions,actions})}]})});
+        const response=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',signal:AbortSignal.timeout(15000),headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4.1-mini',max_completion_tokens:500,messages:[{role:'system',content:'Answer only using the supplied account records. Mention when information is absent. Dates are in Asia/Kolkata. Be concise.'},{role:'user',content:JSON.stringify({question,contact:contact?.name||null,interactions,actions})}]})});
         if(!response.ok) throw new Error(`AI request failed (${response.status})`);
         const data=await response.json();return json({answer:data.choices?.[0]?.message?.content||'No answer returned.',mode:'AI'});
       }
@@ -180,8 +188,8 @@ async function handlePOST(req:NextRequest,{params}:Context) {
     }
     if(path==='push/subscribe') {
       if(!process.env.VAPID_PRIVATE_KEY||!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) return error('Web Push is not configured on this server.');
-      const subscription=body.subscription;
-      if(!subscription?.endpoint||!subscription?.keys?.p256dh||!subscription?.keys?.auth) return error('Invalid subscription.');
+      const subscription=body.subscription as {endpoint?:string;keys?:{p256dh?:string;auth?:string}}|undefined;
+      if(typeof subscription?.endpoint!=='string'||!subscription.endpoint.startsWith('https://')||typeof subscription?.keys?.p256dh!=='string'||typeof subscription?.keys?.auth!=='string') return error('Invalid subscription.');
       run('INSERT INTO push_subscriptions(id,user_id,endpoint,subscription_json,created_at) VALUES(?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id,subscription_json=excluded.subscription_json',randomUUID(),user.id,subscription.endpoint,JSON.stringify(subscription),now());return json({ok:true});
     }
     return error('Not found',404);
@@ -191,8 +199,8 @@ async function handlePOST(req:NextRequest,{params}:Context) {
 export async function DELETE(req:NextRequest,{params}:Context) {
   if(cloudConfigured())return cloudDELETE(req,{params});
   if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
-  try {if(!sameOrigin(req)) return error('Invalid origin',403);const path=(await params).path.join('/');const user=await onlyMine();if(path==='account') {
-      const body=await req.json();
+  try {if(!sameOrigin(req)) return error('Invalid origin',403);await protectRequest(req);const path=(await params).path.join('/');const user=await onlyMine();if(path==='account') {
+      const body=await readJsonLimited(req);
       if(body.confirmation!=='DELETE'||typeof body.password!=='string'||body.password.length>1024)return error('Enter your password and confirm account deletion.');
       const account=row<{password_hash:string}>('SELECT password_hash FROM users WHERE id=?',user.id);
       if(!account||!passwordValid(body.password,account.password_hash))return error('Password is incorrect.',403);

@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "test:extract": "node --experimental-strip-types scripts/test-extract.mjs"
+    "test:extract": "node --experimental-strip-types scripts/test-extract.mjs",
+    "test:security": "node --experimental-strip-types scripts/test-security.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.52.0",

@@ -89,9 +89,11 @@ Free to use. English speech recognition; times shown in IST.
 
 CAPTCHA is not enabled in build 10 or the accompanying web source. Signup currently validates email syntax, not ownership, then creates a session. Login, extraction/transcription and ask endpoints need abuse controls as well; CAPTCHA by itself is not a complete cost/security control. Prefer completing this hardening before broadly advertising public signup; Google review does not certify the server against abuse.
 
-Proposed next phase (not implemented):
+The next-phase implementation is now prepared separately in `docs/WEBSITE_SECURITY.md`; activation and real-provider/database integration testing remain pending. The release-readiness evidence above remains historical.
 
-- Cloudflare Turnstile on web signup with mandatory server-side token validation, hostname/action checks, single-use/expiry handling and secret stored only on the server. A frontend checkbox alone is insufficient.
+Original proposed controls:
+
+- Google reCAPTCHA v3 on web signup with mandatory server-side token validation, hostname/action checks, single-use/expiry handling and secret stored only on the server. A frontend checkbox alone is insufficient.
 - Durable rate limits for registration and failed logins, plus per-account and aggregate quotas/concurrency limits for costly transcription/extraction/ask calls. Do not depend only on process memory in Vercel serverless instances.
 - Request body/audio size limits, bounded execution time and clear retry messages; preserve typed/recorded input after rejection.
 - Decide whether email ownership verification is required before granting AI quota. CAPTCHA does not verify an email address.
@@ -106,4 +108,4 @@ No new package, CAPTCHA account, email provider, billing setting or production s
 - Google release preparation: https://support.google.com/googleplay/android-developer/answer/9859348
 - Publishing overview/review: https://support.google.com/googleplay/android-developer/answer/9859654
 - Current target API requirements (build 10 targets 36): https://developer.android.com/google/play/requirements/target-sdk
-- Turnstile server validation: https://developers.cloudflare.com/turnstile/get-started/server-side-validation/
+- reCAPTCHA server validation: https://developers.google.com/recaptcha/docs/verify

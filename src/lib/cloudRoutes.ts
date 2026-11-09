@@ -1,3 +1,4 @@
+import { protectRequest, protectAuth, protectUserBudget, readJsonLimited, securityResponse } from './abuse';
 import { validReminder, reminderAt } from './reminders';
 import { safeFailure } from './serverErrors';
 import 'server-only';
@@ -19,7 +20,7 @@ const response=(data:unknown,status=200)=>NextResponse.json(data,{status});
 const error=(message:string,status=400)=>response({error:message},status);
 const now=()=>new Date().toISOString();
 const clean=(value:unknown)=>String(value??'').trim();
-const fail=(value:unknown)=>value instanceof Error&&value.message==='Unauthorized'?error('Unauthorized',401):safeFailure(value,'/api/[...path]');
+const fail=(value:unknown)=>securityResponse(value)||(value instanceof Error&&value.message==='Unauthorized'?error('Unauthorized',401):safeFailure(value,'/api/[...path]'));
 const originOkay=(req:NextRequest)=>{const origin=req.headers.get('origin');if(!origin)return true;try{return new URL(origin).host===req.headers.get('host')}catch{return false}};
 async function onlyMine(){const user=await currentUser();if(!user)throw new Error('Unauthorized');return user}
 const contactView=(c:Contact)=>({id:c.id,name:c.name,phone:c.phone,createdAt:c.created_at});
@@ -73,10 +74,12 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
   try{
     if(!originOkay(req))return error('Invalid origin',403);
     const path=(await params).path.join('/');
-    const body=await req.json();
+    await protectRequest(req);
+    const body=await readJsonLimited(req);
+    await protectAuth(req,path,body);
     if(path==='register'){
       const email=clean(body.email).toLowerCase(),name=clean(body.name),password=String(body.password||'');
-      if(!/^\S+@\S+\.\S+$/.test(email)||!name||name.length>120||password.length<8)return error('Enter a name, valid email, and password of at least 8 characters.');
+      if(!/^\S+@\S+\.\S+$/.test(email)||!name||name.length>120||email.length>254||password.length>1024||password.length<8)return error('Enter a name, valid email, and password of at least 8 characters.');
       const existing=await cloud().from('recall_users').select('id').eq('email',email).maybeSingle();if(existing.error)throw new Error(existing.error.message);
       if(existing.data)return error('An account with this email already exists.');
       const id=randomUUID();
@@ -84,6 +87,7 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       const token=await setSession(id);return response({ok:true,...(req.headers.get('x-recall-client')==='native'?{token}:{})});
     }
     if(path==='login'){
+      if(String(body.email||'').length>254||String(body.password||'').length>1024)return error('Email or password is incorrect.',401);
       const email=clean(body.email).toLowerCase(),password=String(body.password||'');
       const found=await cloud().from('recall_users').select('id,password_hash').eq('email',email).maybeSingle();if(found.error)throw new Error(found.error.message);
       if(!found.data||!passwordValid(password,found.data.password_hash))return error('Email or password is incorrect.',401);
@@ -93,6 +97,7 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
     const user=await onlyMine();
     if(path==='extract'){
       const transcript=clean(body.transcript);if(transcript.length<3||transcript.length>10000)return error('Enter a note between 3 and 10,000 characters.');
+      await protectUserBudget(user.id,'extract');
       const result=await extract(transcript);const contacts=await contactsFor(user.id);
       const normalized=(value:string)=>value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
       const matched=contacts.find(c=>normalized(c.name)===normalized(result.contactName))||contacts.find(c=>normalized(c.name).includes(normalized(result.contactName))&&result.contactName.length>=3);
@@ -128,6 +133,7 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       const current=await cloud().from('recall_actions').select('*').eq('id',id).eq('user_id',user.id).maybeSingle();if(current.error)throw new Error(current.error.message);
       if(!current.data)return error('Action not found',404);
       const old=current.data as Action;
+      if(body.dueAt!==undefined&&body.dueAt!==null&&typeof body.dueAt!=='string')return error('Choose a valid date and time.');
       const title=body.title===undefined?old.title:clean(body.title),kind=body.kind===undefined?old.kind:clean(body.kind),dueAt=body.dueAt===undefined?old.due_at:body.dueAt||null;
       const reminderMinutes=body.reminderMinutes===undefined?old.reminder_minutes:body.reminderMinutes;
       if(!validReminder(reminderMinutes))return error('Choose a reminder offset from the list.');
@@ -157,7 +163,7 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
     }
     if(path==='sheet/sync')return response(await flushCloudSheetOutbox(user.id));
     if(path==='ask'){
-      const question=clean(body.question),contactId=clean(body.contactId);if(!question)return error('Ask a question.');
+      const question=clean(body.question),contactId=clean(body.contactId);if(question.length>2000)return error('Keep questions under 2,000 characters.');if(!question)return error('Ask a question.');await protectUserBudget(user.id,'ask');
       const contact=contactId?await cloud().from('recall_contacts').select('id,name').eq('id',contactId).eq('user_id',user.id).maybeSingle():null;
       if(contact?.error)throw new Error(contact.error.message);if(contactId&&!contact?.data)return error('Contact not found',404);
       const interactionsQuery=cloud().from('recall_interactions').select('summary,occurred_at').eq('user_id',user.id);
@@ -165,7 +171,7 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       const interactions=dataOrThrow(await (contactId?interactionsQuery.eq('contact_id',contactId):interactionsQuery).order('occurred_at',{ascending:false}).limit(15));
       const actions=dataOrThrow(await (contactId?actionsQuery.eq('contact_id',contactId):actionsQuery).order('created_at',{ascending:false}).limit(30));
       if(process.env.OPENAI_API_KEY){
-        const ai=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4.1-mini',max_completion_tokens:500,messages:[{role:'system',content:'Answer only from the supplied account records. Mention when information is absent. Dates are in Asia/Kolkata. Be concise.'},{role:'user',content:JSON.stringify({question,contact:contact?.data?.name||null,interactions,actions})}]})});
+        const ai=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',signal:AbortSignal.timeout(15000),headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4.1-mini',max_completion_tokens:500,messages:[{role:'system',content:'Answer only from the supplied account records. Mention when information is absent. Dates are in Asia/Kolkata. Be concise.'},{role:'user',content:JSON.stringify({question,contact:contact?.data?.name||null,interactions,actions})}]})});
         if(!ai.ok)throw new Error(`AI request failed (${ai.status})`);
         const result=await ai.json();return response({answer:result.choices?.[0]?.message?.content||'No answer returned.',mode:'AI'});
       }
@@ -176,7 +182,7 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
     }
     if(path==='push/subscribe'){
       if(!process.env.VAPID_PRIVATE_KEY||!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY)return error('Web Push is not configured on this server.');
-      const subscription=body.subscription;if(!subscription?.endpoint||!subscription?.keys?.p256dh||!subscription?.keys?.auth)return error('Invalid subscription.');
+      const subscription=body.subscription as {endpoint?:string;keys?:{p256dh?:string;auth?:string}}|undefined;if(typeof subscription?.endpoint!=='string'||!subscription.endpoint.startsWith('https://')||typeof subscription?.keys?.p256dh!=='string'||typeof subscription?.keys?.auth!=='string')return error('Invalid subscription.');
       dataOrThrow(await cloud().from('recall_push_subscriptions').upsert({id:randomUUID(),user_id:user.id,endpoint:subscription.endpoint,subscription_json:subscription},{onConflict:'endpoint'}).select('id'));
       return response({ok:true});
     }
@@ -185,8 +191,8 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
 }
 
 export async function cloudDELETE(req:NextRequest,{params}:Context){
-  try{if(!originOkay(req))return error('Invalid origin',403);const path=(await params).path.join('/');const user=await onlyMine();if(path==='account') {
-      const body=await req.json();
+  try{if(!originOkay(req))return error('Invalid origin',403);await protectRequest(req);const path=(await params).path.join('/');const user=await onlyMine();if(path==='account') {
+      const body=await readJsonLimited(req);
       if(body.confirmation!=='DELETE'||typeof body.password!=='string'||body.password.length>1024)return error('Enter your password and confirm account deletion.');
       const account=dataOrThrow(await cloud().from('recall_users').select('password_hash').eq('id',user.id).single()) as {password_hash:string}|null;
       if(!account||!passwordValid(body.password,account.password_hash))return error('Password is incorrect.',403);

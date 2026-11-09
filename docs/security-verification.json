@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-09",
+  "provider": "Google reCAPTCHA v3",
+  "securityUnitGroups": 9,
+  "localHttpChecks": {
+    "isolatedEnvironment": true,
+    "nativeHeaderBypassRejected": 400,
+    "foreignOriginRejected": 403,
+    "oversizedJsonRejected": 413,
+    "loginRateLimited": 429,
+    "retryAfterHeader": true,
+    "accountsCreated": 0
+  },
+  "googleProviderResponsesInUnitTests": "mocked; score/action/hostname/error/expiry/replay revalidation exercised",
+  "realGoogleInvalidTokenProbe": {
+    "httpStatus": 200,
+    "error": "invalid-input-response",
+    "invalidSecretReported": false
+  },
+  "realHumanBrowserSignup": "pending",
+  "supabaseMigrationAndSqlCheck": "owner reported success; verification SQL rolls back its probe",
+  "livePostgresConcurrencyLoadTest": "not performed",
+  "applicationDependenciesAdded": 0,
+  "nativeAppChanges": false,
+  "productionDeploymentAndActivation": "pending owner merge/environment setup",
+  "secretsPrinted": false,
+  "reviewMode": {
+    "signupCaptcha": true,
+    "usageLimits": false,
+    "usesReviewerBypass": false,
+    "fixture": "isolated synthetic account, not actual reviewer credentials",
+    "nativeLogins": 20,
+    "extractions": 25,
+    "fixtureDeleted": true
+  }
+}
