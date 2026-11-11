@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { budgetRule, configuredLimits, readJsonLimited, SecurityError, validateChallenge } from '../src/lib/securityCore.ts';
 import { reserveSqlite } from '../src/lib/securityStore.ts';
+import { mobileSignupConfiguration, validateNativeChallenge, validateSignupProof } from '../src/lib/nativeCaptcha.ts';
 let checks=0;
 const check=async(name,fn)=>{await fn();checks++;console.log(`PASS ${name}`);};
 const secret='test-only-hmac-secret-not-a-real-key',now=Date.UTC(2026,10,9,7,30);
@@ -68,4 +69,53 @@ await check('independent processes share the same durable budget',async()=>{
   const counts=await Promise.all([worker(),worker()]);assert.equal(counts.reduce((a,b)=>a+b,0),5);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+const nativeEnv={NODE_ENV:'production',RECAPTCHA_ENTERPRISE_PROJECT_ID:'test-project',RECAPTCHA_ENTERPRISE_API_KEY:'test-only-server-credential',RECAPTCHA_ANDROID_SITE_KEY:'android-public-test-key',RECAPTCHA_IOS_SITE_KEY:'ios-public-test-key',RECAPTCHA_IOS_BUNDLE_ID:'com.example.test',NEXT_PUBLIC_RECAPTCHA_SITE_KEY:'web-public-test-key',RECAPTCHA_SECRET_KEY:'test-only-web-secret'};
+function nativeAnswer(platform='android'){
+ return {tokenProperties:{valid:true,action:'signup',...(platform==='android'?{androidPackageName:'com.touchmarkdes.recall'}:{iosBundleId:'com.example.test'})},riskAnalysis:{score:0.9},event:{siteKey:platform==='android'?nativeEnv.RECAPTCHA_ANDROID_SITE_KEY:nativeEnv.RECAPTCHA_IOS_SITE_KEY}};
+}
+await check('mobile bootstrap exposes only ready public platform keys, never server credentials',()=>{
+ assert.deepEqual(mobileSignupConfiguration({}),{androidSiteKey:null,iosSiteKey:null});
+ assert.deepEqual(mobileSignupConfiguration(nativeEnv),{androidSiteKey:'android-public-test-key',iosSiteKey:'ios-public-test-key'});
+ const incomplete={...nativeEnv,RECAPTCHA_ENTERPRISE_API_KEY:''};assert.equal(mobileSignupConfiguration(incomplete).androidSiteKey,null);
+ assert(!JSON.stringify(mobileSignupConfiguration(nativeEnv)).includes(nativeEnv.RECAPTCHA_ENTERPRISE_API_KEY));
+});
+await check('native signup sends Google the fixed action/key and validates Android and iOS identities',async()=>{
+ for(const platform of ['android','ios'])await validateNativeChallenge('fresh-token',platform,nativeEnv,async(url,options)=>{
+  assert.equal(url.origin,'https://recaptchaenterprise.googleapis.com');assert.equal(url.pathname,'/v1/projects/test-project/assessments');assert.equal(url.searchParams.has('key'),false);assert.equal(new Headers(options.headers).get('x-goog-api-key'),nativeEnv.RECAPTCHA_ENTERPRISE_API_KEY);
+  assert.deepEqual(JSON.parse(options.body),{event:{token:'fresh-token',siteKey:platform==='android'?nativeEnv.RECAPTCHA_ANDROID_SITE_KEY:nativeEnv.RECAPTCHA_IOS_SITE_KEY,expectedAction:'signup'}});
+  return Response.json(nativeAnswer(platform));
+ });
+});
+await check('native failures reject wrong app, action, key, score and invalid tokens',async()=>{
+ const baseline=nativeAnswer();
+ const answers=[{...baseline,tokenProperties:{...baseline.tokenProperties,valid:false}}, {...baseline,tokenProperties:{...baseline.tokenProperties,androidPackageName:'other.app'}}, {...baseline,tokenProperties:{...baseline.tokenProperties,action:'login'}}, {...baseline,event:{siteKey:'other-key'}}, {...baseline,riskAnalysis:{score:0.1}}, {...baseline,riskAnalysis:{}}, {...baseline,riskAnalysis:{score:2}},null,{}];
+ for(const answer of answers)await assert.rejects(validateNativeChallenge('token','android',nativeEnv,async()=>Response.json(answer)),e=>e.status===400);
+});
+await check('native missing keys, invalid inputs and provider outages fail closed with safe messages',async()=>{
+ let calls=0;const never=async()=>{calls++;throw new Error();};
+ await assert.rejects(validateNativeChallenge('token','web',nativeEnv,never),e=>e.status===400);
+ await assert.rejects(validateNativeChallenge('token','android',{},never),e=>e.status===503);
+ await assert.rejects(validateNativeChallenge('token','android',{...nativeEnv,RECAPTCHA_MIN_SCORE:'NaN'},never),e=>e.status===503);
+ for(const token of ['',undefined,'x'.repeat(16385)])await assert.rejects(validateNativeChallenge(token,'android',nativeEnv,never),e=>e.status===400);
+ assert.equal(calls,0);
+ for(const fetcher of [async()=>new Response('{}',{status:429}),async()=>{throw new Error(nativeEnv.RECAPTCHA_ENTERPRISE_API_KEY);},async()=>new Response('not json')]){
+  await assert.rejects(validateNativeChallenge('token','android',nativeEnv,fetcher),e=>e.status===503&&!e.message.includes(nativeEnv.RECAPTCHA_ENTERPRISE_API_KEY));
+ }
+});
+await check('signup dispatch preserves web verification and never trusts native claims alone',async()=>{
+ let calls=0;const fetcher=async(url)=>{calls++;return Response.json(String(url).includes('recaptchaenterprise.googleapis.com')?nativeAnswer():{success:true,score:0.9,action:'signup',hostname:'recall.touchmarkdes.com'});};
+ await validateSignupProof({captchaToken:'web-token'},nativeEnv,fetcher);
+ await validateSignupProof({captchaProvider:'recaptcha_enterprise',captchaPlatform:'android',captchaToken:'native-token'},nativeEnv,fetcher);
+ assert.equal(calls,2);
+ for(const body of [{'X-Recall-Client':'native',score:1,verified:true},{captchaProvider:'native',captchaToken:'anything'},{captchaProvider:'recaptcha_enterprise',captchaPlatform:'android',score:1}])await assert.rejects(validateSignupProof(body,nativeEnv,fetcher),e=>e.status===400);
+ assert.equal(calls,2);
+});
+await check('native tokens are reassessed on retry and expired/reused tokens are rejected',async()=>{
+ let calls=0;const fetcher=async()=>Response.json(++calls===1?nativeAnswer():{tokenProperties:{valid:false,invalidReason:'DUPE'}});
+ await validateNativeChallenge('same','android',nativeEnv,fetcher);
+ await assert.rejects(validateNativeChallenge('same','android',nativeEnv,fetcher),e=>e.status===400);
+ assert.equal(calls,2);
+});
+
 console.log(`${checks} security checks passed. PostgreSQL migration and real CAPTCHA remain separate integration checks.`);

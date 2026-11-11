@@ -4,7 +4,8 @@ import { NextResponse } from 'next/server';
 import { cloud, cloudConfigured } from './cloud';
 import { db } from './db';
 import { reserveSqlite } from './securityStore';
-import { budgetRule, configuredLimits, SecurityError, validateChallenge, type BudgetRule, type Reservation } from './securityCore';
+import { validateSignupProof } from './nativeCaptcha';
+import { budgetRule, configuredLimits, SecurityError, type BudgetRule, type Reservation } from './securityCore';
 export { readJsonLimited } from './securityCore';
 
 export function abuseEnabled(){
@@ -59,12 +60,8 @@ export async function protectAuth(req:Request,path:string,body:Record<string,unk
   }
   if(limited){const limits=configuredLimits();await reserve([rule('signup-hour',ip,limits.signupHour,3600),rule('signup-day',ip,limits.signupDay,86400)]);}
   if(!signupCaptchaEnabled())return;
-  const secret=process.env.RECAPTCHA_SECRET_KEY,siteKey=process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
-  if(!secret||!siteKey)throw new SecurityError('New account security checks are not configured yet. Please retry later. Existing accounts can still sign in.',503);
-  const hostnames=(process.env.RECAPTCHA_ALLOWED_HOSTNAMES||'recall.touchmarkdes.com').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
-  if(process.env.NODE_ENV!=='production')hostnames.push('localhost','127.0.0.1');
-  // No native-header, missing-Origin or User-Agent exemption for registration.
-  await validateChallenge(body.captchaToken,{secret,hostnames,minScore:process.env.RECAPTCHA_MIN_SCORE===undefined?0.5:Number(process.env.RECAPTCHA_MIN_SCORE)});
+  // The selected provider changes verification, never whether verification runs.
+  await validateSignupProof(body);
   if(limited){const limits=configuredLimits();await reserve([rule('signup-global','site',limits.signupGlobalDay,86400)]);}
 }
 export async function protectUserBudget(userId:string,path:string){

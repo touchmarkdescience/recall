@@ -1,10 +1,10 @@
 # Recall website signup and resource protection
 
-Status: implemented and locally verified; **not enabled in production**. The owner reported both Supabase SQL files succeeded on 9 November 2026. No package added. No native APK/AAB change.
+Website v3 protection is deployed. The owner reported both Supabase SQL files succeeded on 9 November 2026. Native signup now has a separate SDK-backed implementation pending Google mobile keys and deployment; see [NATIVE_SIGNUP_SETUP.md](NATIVE_SIGNUP_SETUP.md).
 
 ## Selected flow
 
-The owner selected Google reCAPTCHA v3. New app users create an account at https://recall.touchmarkdes.com/app, then sign in to the native Recall app. Existing app sessions/logins do not need a CAPTCHA. The released app's signup request will receive a message directing users to the website after enforcement is enabled. Its existing error text is not a new clickable registration button.
+Website signup uses Google reCAPTCHA v3. Updated native signup uses Google’s official mobile SDK and server-side Enterprise assessments, so users register and become signed in inside Recall. Website keys remain separate from Android/iOS keys. Existing app sessions/logins do not need a CAPTCHA. Older released apps need the native signup update; server flags alone cannot add SDK support to an installed build.
 
 Do not exempt a request because it has a native header, omits Origin, or uses a particular User-Agent. These are forgeable. The server requires a verified CAPTCHA for every registration once signup protection is enabled. Existing Google Play review credentials use the ordinary sign-in path; no reviewer bypass exists.
 
@@ -82,7 +82,7 @@ These are application controls, not full DDoS protection or email verification. 
 
 ## Verification
 
-- `npm run test:security`: nine grouped checks, including low/missing score, wrong hostname/action, provider errors, token revalidation, bounded streaming bodies and durable reservations across two independent processes. Google responses are mocked in these tests.
+- `npm run test:security`: 15 grouped checks, including low/missing score, wrong hostname/action, provider errors, token revalidation, bounded streaming bodies and durable reservations across two independent processes. Google responses are mocked in these tests.
 - `node scripts/test-security-http.mjs`: isolated localhost HTTP check (never production) with dummy keys, no real provider call and no production environment/account data. Confirms native-header bypass rejection, foreign-Origin rejection, oversized-body rejection, 401 login failures followed by 429/Retry-After. No account is created.
 - `scripts/test-review-access.mjs` tests the normal native sign-in/extraction flow with signup CAPTCHA on and usage limits off in an isolated temporary database: 20 successful sign-ins and 25 extractions, with a synthetic account removed afterward. It does not use actual Google reviewer credentials.
 - Typecheck, extraction regressions and production build must pass before handoff. No claim of real reCAPTCHA completion, live Supabase counter execution or real-browser visual verification until those are separately performed with configured keys.

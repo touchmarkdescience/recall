@@ -5,7 +5,7 @@ assert(url.protocol==='http:'&&['127.0.0.1','localhost'].includes(url.hostname),
 async function post(path,body,extra={}){const response=await fetch(`${base}/api/${path}`,{method:'POST',headers:{'Content-Type':'application/json',...extra},body:JSON.stringify(body)});return {status:response.status,body:await response.json(),retry:response.headers.get('retry-after')}}
 const config=await fetch(`${base}/api/security`).then(r=>r.json());assert.equal(config.captchaRequired,true);
 const input={name:'Security probe',email:`probe-${Date.now()}@example.invalid`,password:'local-test-not-a-real-password'};
-const signup=await post('register',input,{'X-Recall-Client':'native'});assert.equal(signup.status,400);assert.match(signup.body.error,/securely/);
+const signup=await post('register',input,{'X-Recall-Client':'native'});assert.equal(signup.status,400);assert.equal(signup.body.code,'SECURITY_CHECK');
 const spoofed=await post('register',input,{'X-Recall-Client':'native',Origin:'https://attacker.example'});assert.equal(spoofed.status,403);
 const tooLarge=await post('login',{email:'x'.repeat(70000),password:'x'});assert.equal(tooLarge.status,413);
 for(let i=0;i<10;i++){const result=await post('login',{email:input.email,password:input.password});assert.equal(result.status,401);}

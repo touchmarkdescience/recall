@@ -35,7 +35,7 @@ export async function readJsonLimited(request:Request,maxBytes=65536):Promise<Re
 export async function validateChallenge(token:unknown,options:{secret:string;hostnames:string[];minScore?:number;fetcher?:typeof fetch}) {
   const minScore=options.minScore??0.5;
   if(!Number.isFinite(minScore)||minScore<0.1||minScore>1)throw new SecurityError('Security score configuration is unavailable.',503);
-  if(typeof token!=='string'||token.length<1||token.length>16384)throw new SecurityError('Create your account securely at https://recall.touchmarkdes.com/app, then sign in to the Recall app. Website users: retry the security check.',400);
+  if(typeof token!=='string'||token.length<1||token.length>16384)throw new SecurityError('The signup security check did not finish. Please retry. If you use an older Recall app, update it from Google Play.',400);
   let response:Response;
   try {response=await (options.fetcher??fetch)('https://www.google.com/recaptcha/api/siteverify',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({secret:options.secret,response:token}),signal:AbortSignal.timeout(5000)});}
   catch{throw new SecurityError('The security check is temporarily unavailable. Your details are kept; retry shortly.',503);}
