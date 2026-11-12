@@ -118,4 +118,20 @@ await check('native tokens are reassessed on retry and expired/reused tokens are
  assert.equal(calls,2);
 });
 
+await check('native rejection diagnostics identify iOS failures without logging credentials or assessment content',async()=>{
+ const original=console.warn, logs=[];
+ console.warn=(...args)=>logs.push(args);
+ try {
+  const baseline=nativeAnswer('ios');
+  await validateNativeChallenge('private-token','ios',nativeEnv,async()=>Response.json(baseline));
+  assert.equal(logs.length,0);
+  await assert.rejects(validateNativeChallenge('private-token','ios',nativeEnv,async()=>Response.json({...baseline,riskAnalysis:{score:0.3},private:'private-account@example.test'})),e=>e.status===400);
+  assert.deepEqual(logs.pop(),['recall_native_signup_rejected',{platform:'ios',reasons:['score_below_threshold'],invalidReason:null,score:0.3}]);
+  await assert.rejects(validateNativeChallenge('private-token','ios',nativeEnv,async()=>Response.json({...baseline,tokenProperties:{...baseline.tokenProperties,valid:false,invalidReason:'EXPIRED'}})),e=>e.status===400);
+  assert.deepEqual(logs.pop()[1],{platform:'ios',reasons:['invalid_token'],invalidReason:'EXPIRED',score:0.9});
+  await assert.rejects(validateNativeChallenge('private-token','ios',nativeEnv,async()=>Response.json({...baseline,event:{siteKey:'private-key'},tokenProperties:{...baseline.tokenProperties,iosBundleId:'private-bundle',invalidReason:'private-token'}})),e=>e.status===400);
+  assert.deepEqual(logs.pop()[1],{platform:'ios',reasons:['app_identity_mismatch','site_key_mismatch'],invalidReason:null,score:0.9});
+ } finally {console.warn=original;}
+});
+
 console.log(`${checks} security checks passed. PostgreSQL migration and real CAPTCHA remain separate integration checks.`);

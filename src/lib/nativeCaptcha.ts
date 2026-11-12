@@ -64,7 +64,7 @@ export async function validateNativeChallenge(
     throw new SecurityError('The security check is temporarily unavailable. Your details are kept; retry shortly.', 503);
   }
   let assessment: {
-    tokenProperties?: { valid?: boolean; action?: string; androidPackageName?: string; iosBundleId?: string };
+    tokenProperties?: { valid?: boolean; invalidReason?: string; action?: string; androidPackageName?: string; iosBundleId?: string };
     riskAnalysis?: { score?: number };
     event?: { siteKey?: string };
   };
@@ -77,9 +77,24 @@ export async function validateNativeChallenge(
   const properties = assessment?.tokenProperties;
   const appId = options.platform === 'android' ? properties?.androidPackageName : properties?.iosBundleId;
   const score = assessment?.riskAnalysis?.score;
-  if (properties?.valid !== true || properties.action !== 'signup' || appId !== options.appId ||
-      assessment?.event?.siteKey !== options.siteKey || typeof score !== 'number' ||
-      !Number.isFinite(score) || score < options.minScore || score > 1) {
+  const rejectionReasons: string[] = [];
+  if (properties?.valid !== true) rejectionReasons.push('invalid_token');
+  if (properties?.action !== 'signup') rejectionReasons.push('action_mismatch');
+  if (appId !== options.appId) rejectionReasons.push('app_identity_mismatch');
+  if (assessment?.event?.siteKey !== options.siteKey) rejectionReasons.push('site_key_mismatch');
+  if (typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > 1) {
+    rejectionReasons.push('invalid_score');
+  } else if (score < options.minScore) rejectionReasons.push('score_below_threshold');
+  if (rejectionReasons.length) {
+    // Server-only diagnostics: never log the assessment body, token, key,
+    // account details, or Google's arbitrary strings. Validation stays closed.
+    const knownInvalidReasons = ['UNKNOWN_INVALID_REASON', 'MALFORMED', 'EXPIRED', 'DUPE', 'MISSING', 'BROWSER_ERROR'];
+    console.warn('recall_native_signup_rejected', {
+      platform: options.platform,
+      reasons: rejectionReasons,
+      invalidReason: knownInvalidReasons.includes(properties?.invalidReason || '') ? properties!.invalidReason : null,
+      score: typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 1 ? score : null,
+    });
     throw new SecurityError('We could not verify this signup. Your details are kept; please retry.', 400);
   }
   // Tokens are assessed fresh on every attempt; Google checks expiry and reuse.
