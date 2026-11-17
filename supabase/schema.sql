@@ -1,4 +1,6 @@
 -- Recall production schema. Run once in the SQL Editor of the intended Supabase project.
+-- For current fast-write routes, then run write-performance-migration.sql and
+-- write-performance-check.sql before deploying the application.
 create extension if not exists pgcrypto;
 
 create table if not exists public.recall_users (

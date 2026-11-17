@@ -13,14 +13,12 @@ export async function currentUser(): Promise<User | null> {
   const token = bearer || (await cookies()).get('recall_session')?.value;
   if (!token) return null;
   if (cloudConfigured()) {
-    const sessionResult=await cloud().from('recall_sessions').select('user_id').eq('token_hash',hashToken(token)).gt('expires_at',new Date().toISOString()).maybeSingle();
+    // The existing FK lets PostgREST validate the live session and account in one
+    // request. Never cache this result: logout/deletion must take effect at once.
+    const sessionResult=await cloud().from('recall_sessions').select('user:recall_users!inner(id,email,name)').eq('token_hash',hashToken(token)).gt('expires_at',new Date().toISOString()).maybeSingle();
     if(sessionResult.error)throw new Error(sessionResult.error.message);
-    const session=sessionResult.data;
-    if (!session) return null;
-    const userResult=await cloud().from('recall_users').select('id,email,name').eq('id',session.user_id).maybeSingle();
-    if(userResult.error)throw new Error(userResult.error.message);
-    const user=userResult.data;
-    return user as User | null;
+    const session=sessionResult.data as unknown as {user:User}|null;
+    return session?.user||null;
   }
   return row<User>(`SELECT users.id,users.email,users.name FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?`,hashToken(token),new Date().toISOString()) || null;
 }

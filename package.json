@@ -9,7 +9,8 @@
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test:extract": "node --experimental-strip-types scripts/test-extract.mjs",
-    "test:security": "node --experimental-strip-types scripts/test-security.mjs"
+    "test:security": "node --experimental-strip-types scripts/test-security.mjs",
+    "test:writes": "node --experimental-strip-types scripts/test-write-performance.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.52.0",
@@ -24,6 +25,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "@types/luxon": "^3.7.1",
     "@types/node": "^24.9.1",
     "@types/react": "^19.2.2",

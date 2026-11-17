@@ -4,7 +4,7 @@ import { safeFailure } from './serverErrors';
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { clearSession, currentUser, passwordHash, passwordValid, setSession } from './auth';
 import { cloud, dataOrThrow } from './cloud';
@@ -37,6 +37,12 @@ const contactView=(c:Contact)=>({id:c.id,name:c.name,phone:c.phone,createdAt:c.c
 const interactionView=(i:Interaction,c:Contact|undefined)=>({id:i.id,contactId:i.contact_id||'',contactName:c?.name||'',summary:i.summary,transcript:i.transcript,occurredAt:i.occurred_at});
 const actionView=(a:Action,c:Contact|undefined,summary?:string,originalNote?:string)=>({id:a.id,contactId:a.contact_id||'',contactName:c?.name||'',kind:a.kind,title:a.title,dueAt:a.due_at,timeSpecified:a.time_specified,durationMinutes:a.duration_minutes,reminderMinutes:a.reminder_minutes,status:a.status,createdAt:a.created_at,...(summary===undefined?{}:{conversationSummary:summary}),...(originalNote===undefined?{}:{originalNote})});
 async function contactsFor(userId:string){return dataOrThrow(await cloud().from('recall_contacts').select('id,name,phone,created_at').eq('user_id',userId).order('name')) as Contact[]}
+function syncSheetsAfterResponse(userId:string){
+  // The database already committed the event. Next's supported after-response
+  // lifecycle attempts delivery; failures/timeouts leave durable jobs available
+  // to the existing Retry queued updates endpoint, never roll back the action.
+  after(async()=>{try{await flushCloudSheetOutbox(userId)}catch{console.warn('recall_sheet_sync_deferred')}});
+}
 
 export async function cloudGET(req:NextRequest,{params}:Context){
   try{
@@ -128,10 +134,12 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       if(actions.some(action=>action.dueAt&&action.timeSpecified!==false&&DateTime.fromISO(action.dueAt).toMillis()<Date.now()))return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
       const contactId=clean(body.contactId)||null,contactName=clean(body.contactName);
       if(contactName.length>120)return error('Person name is too long.');
-      const saved=dataOrThrow(await cloud().rpc('recall_save_note',{p_user_id:user.id,p_contact_id:contactId,p_contact_name:contactName,p_transcript:transcript,p_summary:summary,p_occurred_at:occurredAt,p_actions:actions})) as {contactId:string;interactionId:string};
+      const saved=dataOrThrow(await cloud().rpc('recall_save_note_fast',{p_user_id:user.id,p_contact_id:contactId,p_contact_name:contactName,p_transcript:transcript,p_summary:summary,p_occurred_at:occurredAt,p_actions:actions})) as {contactId:string|null;interactionId:string;contact:Contact|null;interaction:Interaction;actions:Action[];sheetSyncPending:number};
       const written=performance.now();
-      const sync=await flushCloudSheetOutbox(user.id);
-      return writeResponse({ok:true,...saved,sheetSyncPending:sync.pending},'save',started,authorized,written);
+      syncSheetsAfterResponse(user.id);
+      const contact=saved.contact||undefined;
+      return writeResponse({ok:true,contactId:saved.contactId,interactionId:saved.interactionId,sheetSyncPending:saved.sheetSyncPending,
+        snapshot:{contact:contact?contactView(contact):null,interaction:interactionView(saved.interaction,contact),actions:saved.actions.map(action=>actionView(action,contact,saved.interaction.summary,saved.interaction.transcript))}},'save',started,authorized,written);
     }
     if(path==='contact'){
       const id=clean(body.id),name=clean(body.name),phone=clean(body.phone);
@@ -142,22 +150,21 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
     if(path==='action'){
       const id=clean(body.id),status=clean(body.status);
       if(!['pending','done','archived','removed'].includes(status))return error('Invalid status');
-      const current=await cloud().from('recall_actions').select('*').eq('id',id).eq('user_id',user.id).maybeSingle();if(current.error)throw new Error(current.error.message);
-      if(!current.data)return error('Action not found',404);
-      const old=current.data as Action;
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))return error('Action not found',404);
       if(body.dueAt!==undefined&&body.dueAt!==null&&typeof body.dueAt!=='string')return error('Choose a valid date and time.');
-      const title=body.title===undefined?old.title:clean(body.title),kind=body.kind===undefined?old.kind:clean(body.kind),dueAt=body.dueAt===undefined?old.due_at:body.dueAt||null;
-      const reminderMinutes=body.reminderMinutes===undefined?old.reminder_minutes:body.reminderMinutes;
-      if(!validReminder(reminderMinutes))return error('Choose a reminder offset from the list.');
-      const timeSpecified=body.timeSpecified===undefined?old.time_specified:body.timeSpecified===false?0:1;
-      if(!title||title.length>500||!['follow_up','reminder','meeting'].includes(kind)||(dueAt&&!DateTime.fromISO(dueAt).isValid))return error('Enter a valid title, type and date.');
-      if(body.dueAt!==undefined&&dueAt&&timeSpecified!==0&&DateTime.fromISO(dueAt).toMillis()<Date.now())return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
-      const changed=dataOrThrow(await cloud().from('recall_actions').update({status,title,kind,due_at:dueAt,time_specified:timeSpecified,reminder_minutes:reminderMinutes,notified_at:dueAt!==old.due_at||timeSpecified!==old.time_specified||status!==old.status||reminderMinutes!==old.reminder_minutes?null:old.notified_at}).eq('id',id).eq('user_id',user.id).select('id'));
-      if(!changed.length)return error('Action not found',404);
+      const patch:Record<string,unknown>={status};
+      if(body.title!==undefined){const title=clean(body.title);if(!title||title.length>500)return error('Enter a valid title, type and date.');patch.title=title}
+      if(body.kind!==undefined){const kind=clean(body.kind);if(!['follow_up','reminder','meeting'].includes(kind))return error('Enter a valid title, type and date.');patch.kind=kind}
+      if(body.dueAt!==undefined){if(body.dueAt&&!DateTime.fromISO(body.dueAt).isValid)return error('Choose a valid date and time.');patch.dueAt=body.dueAt||null}
+      if(body.timeSpecified!==undefined)patch.timeSpecified=body.timeSpecified!==false;
+      if(body.reminderMinutes!==undefined){if(!validReminder(body.reminderMinutes))return error('Choose a reminder offset from the list.');patch.reminderMinutes=body.reminderMinutes}
+      const result=await cloud().rpc('recall_update_action_fast',{p_user_id:user.id,p_action_id:id,p_patch:patch});
+      if(result.error?.code==='P0002')return error('Action not found',404);
+      if(result.error?.code==='22023')return error(result.error.message,400);
+      const saved=dataOrThrow(result) as {action:Action;contact:Contact|null;summary:string|null;originalNote:string|null;sheetSyncPending:number};
       const written=performance.now();
-      const contact=old.contact_id?await cloud().from('recall_contacts').select('name').eq('id',old.contact_id).eq('user_id',user.id).single():null;if(contact?.error)throw new Error(contact.error.message);
-      await enqueueCloudSheetEvent(user.id,{type:'action',actionId:id,interactionId:old.interaction_id,contactId:old.contact_id,contactName:contact?.data?.name||'',kind,title,dueAt,timeSpecified,status,createdAt:old.created_at});
-      const sync=await flushCloudSheetOutbox(user.id);return writeResponse({ok:true,sheetSyncPending:sync.pending},'action',started,authorized,written);
+      syncSheetsAfterResponse(user.id);
+      return writeResponse({ok:true,sheetSyncPending:saved.sheetSyncPending,action:actionView(saved.action,saved.contact||undefined,saved.summary||'',saved.originalNote||'')},'action',started,authorized,written);
     }
     if(path==='settings'){
       const pushEnabled=body.pushEnabled===true,reminderMinutes=Number(body.reminderMinutes),sheetWebhookUrl=clean(body.sheetWebhookUrl),sheetSecret=clean(body.sheetSecret);
