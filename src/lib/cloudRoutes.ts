@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { clearSession, currentUser, passwordHash, passwordValid, setSession } from './auth';
 import { cloud, dataOrThrow } from './cloud';
-import { enqueueCloudSheetEvent, flushCloudSheetOutbox, getCloudSettings } from './cloudSettings';
+import { enqueueCloudSheetEvent, flushCloudSheetOutbox, getCloudSettings, getCloudTranscriptionProvider } from './cloudSettings';
 import { extract, type DraftAction } from './extract';
 import { defaultSttProvider, sttConfigured, sttLabel, type SttProvider } from './stt';
 
@@ -17,6 +17,16 @@ type Contact={id:string;name:string;phone:string|null;created_at:string};
 type Action={id:string;user_id:string;contact_id:string|null;interaction_id:string|null;kind:string;title:string;due_at:string|null;time_specified:number;duration_minutes:number;reminder_minutes:number;status:string;created_at:string;notified_at:string|null};
 type Interaction={id:string;contact_id:string|null;summary:string;transcript:string;occurred_at:string;created_at:string};
 const response=(data:unknown,status=200)=>NextResponse.json(data,{status});
+const writeResponse=(data:unknown,operation:'save'|'action',started:number,authorized:number,written:number)=>{
+  const finished=performance.now();
+  const timing={operation,authMs:Math.round(authorized-started),writeMs:Math.round(written-authorized),postWriteMs:Math.round(finished-written),totalMs:Math.round(finished-started)};
+  // Operational durations only: no account IDs, input, tokens or credentials.
+  console.info('recall_write_timing',timing);
+  const result=response(data);
+  result.headers.set('Server-Timing',`auth;dur=${timing.authMs}, write;dur=${timing.writeMs}, postwrite;dur=${timing.postWriteMs}, total;dur=${timing.totalMs}`);
+  result.headers.set('Cache-Control','no-store');
+  return result;
+};
 const error=(message:string,status=400)=>response({error:message},status);
 const now=()=>new Date().toISOString();
 const clean=(value:unknown)=>String(value??'').trim();
@@ -31,11 +41,10 @@ async function contactsFor(userId:string){return dataOrThrow(await cloud().from(
 export async function cloudGET(req:NextRequest,{params}:Context){
   try{
     const path=(await params).path.join('/');
-    if(path==='me'){const user=await currentUser(),provider=user?(await getCloudSettings(user.id)).transcriptionProvider:defaultSttProvider();return response({user,accountDeletionAvailable:true,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
+    if(path==='me'){const user=await currentUser(),provider=user?await getCloudTranscriptionProvider(user.id):defaultSttProvider();return response({user,accountDeletionAvailable:true,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
     const user=await onlyMine();
     if(path==='settings')return response(await getCloudSettings(user.id));
     if(path==='dashboard'){
-      await getCloudSettings(user.id);
       const [contacts,actions,interactions]=await Promise.all([
         contactsFor(user.id),
         cloud().from('recall_actions').select('*').eq('user_id',user.id).order('due_at',{ascending:true,nullsFirst:false}).limit(1000).then(dataOrThrow) as Promise<Action[]>,
@@ -71,6 +80,7 @@ export async function cloudGET(req:NextRequest,{params}:Context){
 }
 
 export async function cloudPOST(req:NextRequest,{params}:Context){
+  const started=performance.now();
   try{
     if(!originOkay(req))return error('Invalid origin',403);
     const path=(await params).path.join('/');
@@ -95,6 +105,7 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
     }
     if(path==='logout'){await clearSession();return response({ok:true})}
     const user=await onlyMine();
+    const authorized=performance.now();
     if(path==='extract'){
       const transcript=clean(body.transcript);if(transcript.length<3||transcript.length>10000)return error('Enter a note between 3 and 10,000 characters.');
       await protectUserBudget(user.id,'extract');
@@ -118,8 +129,9 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       const contactId=clean(body.contactId)||null,contactName=clean(body.contactName);
       if(contactName.length>120)return error('Person name is too long.');
       const saved=dataOrThrow(await cloud().rpc('recall_save_note',{p_user_id:user.id,p_contact_id:contactId,p_contact_name:contactName,p_transcript:transcript,p_summary:summary,p_occurred_at:occurredAt,p_actions:actions})) as {contactId:string;interactionId:string};
+      const written=performance.now();
       const sync=await flushCloudSheetOutbox(user.id);
-      return response({ok:true,...saved,sheetSyncPending:sync.pending});
+      return writeResponse({ok:true,...saved,sheetSyncPending:sync.pending},'save',started,authorized,written);
     }
     if(path==='contact'){
       const id=clean(body.id),name=clean(body.name),phone=clean(body.phone);
@@ -142,9 +154,10 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       if(body.dueAt!==undefined&&dueAt&&timeSpecified!==0&&DateTime.fromISO(dueAt).toMillis()<Date.now())return error('A timed action cannot be scheduled in the past. Choose a later time in IST.');
       const changed=dataOrThrow(await cloud().from('recall_actions').update({status,title,kind,due_at:dueAt,time_specified:timeSpecified,reminder_minutes:reminderMinutes,notified_at:dueAt!==old.due_at||timeSpecified!==old.time_specified||status!==old.status||reminderMinutes!==old.reminder_minutes?null:old.notified_at}).eq('id',id).eq('user_id',user.id).select('id'));
       if(!changed.length)return error('Action not found',404);
+      const written=performance.now();
       const contact=old.contact_id?await cloud().from('recall_contacts').select('name').eq('id',old.contact_id).eq('user_id',user.id).single():null;if(contact?.error)throw new Error(contact.error.message);
       await enqueueCloudSheetEvent(user.id,{type:'action',actionId:id,interactionId:old.interaction_id,contactId:old.contact_id,contactName:contact?.data?.name||'',kind,title,dueAt,timeSpecified,status,createdAt:old.created_at});
-      const sync=await flushCloudSheetOutbox(user.id);return response({ok:true,sheetSyncPending:sync.pending});
+      const sync=await flushCloudSheetOutbox(user.id);return writeResponse({ok:true,sheetSyncPending:sync.pending},'action',started,authorized,written);
     }
     if(path==='settings'){
       const pushEnabled=body.pushEnabled===true,reminderMinutes=Number(body.reminderMinutes),sheetWebhookUrl=clean(body.sheetWebhookUrl),sheetSecret=clean(body.sheetSecret);

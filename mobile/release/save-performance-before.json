@@ -1,0 +1,81 @@
+{
+  "label": "before",
+  "environment": "localhost production Next.js + in-memory PostgREST fixture; no production writes",
+  "fixtureDatabaseDelayMs": 50,
+  "samples": 7,
+  "median": {
+    "saveMs": 434.7,
+    "refreshMs": 608.7,
+    "updateMs": 546.9,
+    "saveQueries": 8,
+    "updateQueries": 10,
+    "saveAndRefreshMs": 1044.9,
+    "updateAndRefreshMs": 1146.6
+  },
+  "runs": [
+    {
+      "saveMs": 443.0406250000001,
+      "refreshMs": 612.0706659999996,
+      "updateMs": 547.293917,
+      "saveQueries": 8,
+      "updateQueries": 10,
+      "saveAndRefreshMs": 1055.1112909999997,
+      "updateAndRefreshMs": 1156.3816669999997
+    },
+    {
+      "saveMs": 431.35599999999977,
+      "refreshMs": 614.2590410000003,
+      "updateMs": 552.2382500000003,
+      "saveQueries": 8,
+      "updateQueries": 10,
+      "saveAndRefreshMs": 1045.615041,
+      "updateAndRefreshMs": 1146.6382910000002
+    },
+    {
+      "saveMs": 436.27529199999935,
+      "refreshMs": 604.9799579999999,
+      "updateMs": 548.8627500000002,
+      "saveQueries": 8,
+      "updateQueries": 10,
+      "saveAndRefreshMs": 1041.2552499999993,
+      "updateAndRefreshMs": 1157.0880829999987
+    },
+    {
+      "saveMs": 443.0652090000003,
+      "refreshMs": 605.6858749999992,
+      "updateMs": 530.8095840000005,
+      "saveQueries": 8,
+      "updateQueries": 10,
+      "saveAndRefreshMs": 1048.7510839999995,
+      "updateAndRefreshMs": 1126.7417509999996
+    },
+    {
+      "saveMs": 432.201583,
+      "refreshMs": 602.7492080000011,
+      "updateMs": 546.9454580000001,
+      "saveQueries": 8,
+      "updateQueries": 10,
+      "saveAndRefreshMs": 1034.9507910000011,
+      "updateAndRefreshMs": 1151.5909999999985
+    },
+    {
+      "saveMs": 434.7314580000002,
+      "refreshMs": 610.2039160000004,
+      "updateMs": 537.9256249999999,
+      "saveQueries": 8,
+      "updateQueries": 10,
+      "saveAndRefreshMs": 1044.9353740000006,
+      "updateAndRefreshMs": 1130.0264579999985
+    },
+    {
+      "saveMs": 428.33320900000035,
+      "refreshMs": 608.7029589999984,
+      "updateMs": 536.0872909999998,
+      "saveQueries": 8,
+      "updateQueries": 10,
+      "saveAndRefreshMs": 1037.0361679999987,
+      "updateAndRefreshMs": 1141.7486239999998
+    }
+  ],
+  "limits": "Excludes real mobile network, Supabase execution, cold starts, phone notification scheduling and optional connected Sheets."
+}

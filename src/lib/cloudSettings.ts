@@ -10,12 +10,30 @@ export async function ensureCloudSettings(userId:string) {
   dataOrThrow(await cloud().from('recall_user_settings').upsert({user_id:userId},{onConflict:'user_id',ignoreDuplicates:true}).select('user_id'));
 }
 
-export async function getCloudSettings(userId:string):Promise<Settings> {
+async function storedSettings(userId:string):Promise<Stored> {
+  const result=await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider').eq('user_id',userId).maybeSingle();
+  if(result.error)throw new Error(result.error.message);
+  if(result.data)return result.data as Stored;
+  // Initialize only genuinely missing rows; ordinary reads must not write.
   await ensureCloudSettings(userId);
-  const s=dataOrThrow(await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider').eq('user_id',userId).single()) as Stored;
-  const pending=await cloud().from('recall_sheet_outbox').select('id',{count:'exact',head:true}).eq('user_id',userId).is('synced_at',null);
-  if(pending.error)throw new Error(pending.error.message);
-  return {pushEnabled:s.push_enabled,reminderMinutes:s.reminder_minutes,sheetWebhookUrl:s.sheet_webhook_url||'',sheetConnected:Boolean(s.sheet_webhook_url&&s.sheet_secret),syncPending:pending.count||0,transcriptionProvider:sttProvider(s.transcription_provider)};
+  return dataOrThrow(await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider').eq('user_id',userId).single()) as Stored;
+}
+
+async function pendingSheetCount(userId:string) {
+  const result=await cloud().from('recall_sheet_outbox').select('id',{count:'exact',head:true}).eq('user_id',userId).is('synced_at',null);
+  if(result.error)throw new Error(result.error.message);
+  return result.count||0;
+}
+
+export async function getCloudTranscriptionProvider(userId:string) {
+  const result=await cloud().from('recall_user_settings').select('transcription_provider').eq('user_id',userId).maybeSingle();
+  if(result.error)throw new Error(result.error.message);
+  return sttProvider(result.data?.transcription_provider);
+}
+
+export async function getCloudSettings(userId:string):Promise<Settings> {
+  const [s,pending]=await Promise.all([storedSettings(userId),pendingSheetCount(userId)]);
+  return {pushEnabled:s.push_enabled,reminderMinutes:s.reminder_minutes,sheetWebhookUrl:s.sheet_webhook_url||'',sheetConnected:Boolean(s.sheet_webhook_url&&s.sheet_secret),syncPending:pending,transcriptionProvider:sttProvider(s.transcription_provider)};
 }
 
 export async function enqueueCloudSheetEvent(userId:string,payload:Record<string,unknown>) {
@@ -23,9 +41,13 @@ export async function enqueueCloudSheetEvent(userId:string,payload:Record<string
 }
 
 export async function flushCloudSheetOutbox(userId:string) {
-  await ensureCloudSettings(userId);
-  const config=dataOrThrow(await cloud().from('recall_user_settings').select('sheet_webhook_url,sheet_secret').eq('user_id',userId).single()) as Stored;
-  if(!config.sheet_webhook_url||!config.sheet_secret)return {sent:0,pending:(await getCloudSettings(userId)).syncPending};
+  const [result,pending]=await Promise.all([
+    cloud().from('recall_user_settings').select('sheet_webhook_url,sheet_secret').eq('user_id',userId).maybeSingle(),
+    pendingSheetCount(userId),
+  ]);
+  if(result.error)throw new Error(result.error.message);
+  const config=result.data as Pick<Stored,'sheet_webhook_url'|'sheet_secret'>|null;
+  if(!config?.sheet_webhook_url||!config.sheet_secret)return {sent:0,pending};
   const jobs=dataOrThrow(await cloud().from('recall_sheet_outbox').select('id,payload_json').eq('user_id',userId).is('synced_at',null).order('created_at').limit(100));
   let sent=0;
   for(const job of jobs) {
@@ -42,5 +64,5 @@ export async function flushCloudSheetOutbox(userId:string) {
       break;
     }
   }
-  return {sent,pending:(await getCloudSettings(userId)).syncPending};
+  return {sent,pending:await pendingSheetCount(userId)};
 }

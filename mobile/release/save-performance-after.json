@@ -1,0 +1,96 @@
+{
+  "label": "after",
+  "environment": "localhost production Next.js + in-memory PostgREST fixture; no production writes",
+  "fixtureDatabaseDelayMs": 50,
+  "samples": 7,
+  "median": {
+    "saveMs": 224.4,
+    "refreshMs": 170.5,
+    "updateMs": 332.7,
+    "saveQueries": 5,
+    "updateQueries": 7,
+    "saveAndRefreshMs": 398.9,
+    "updateAndRefreshMs": 332.7
+  },
+  "screenApiTimingsMs": {
+    "identity": 163.9,
+    "dashboard": 166.6,
+    "personHistory": 219.5,
+    "reviewExtraction": 166.3,
+    "settings": 164.1
+  },
+  "runs": [
+    {
+      "saveMs": 227.516167,
+      "refreshMs": 171.3996249999998,
+      "updateMs": 333.6244999999999,
+      "saveQueries": 5,
+      "updateQueries": 7,
+      "saveAndRefreshMs": 398.9157919999998,
+      "updateAndRefreshMs": 333.6244999999999
+    },
+    {
+      "saveMs": 224.37762499999963,
+      "refreshMs": 169.88133400000015,
+      "updateMs": 322.34508400000004,
+      "saveQueries": 5,
+      "updateQueries": 7,
+      "saveAndRefreshMs": 394.2589589999998,
+      "updateAndRefreshMs": 322.34508400000004
+    },
+    {
+      "saveMs": 218.24529099999972,
+      "refreshMs": 165.49416599999995,
+      "updateMs": 328.7065829999997,
+      "saveQueries": 5,
+      "updateQueries": 7,
+      "saveAndRefreshMs": 383.7394569999997,
+      "updateAndRefreshMs": 328.7065829999997
+    },
+    {
+      "saveMs": 232.3529580000004,
+      "refreshMs": 170.5928330000006,
+      "updateMs": 339.46079199999986,
+      "saveQueries": 5,
+      "updateQueries": 7,
+      "saveAndRefreshMs": 402.945791000001,
+      "updateAndRefreshMs": 339.46079199999986
+    },
+    {
+      "saveMs": 230.42691699999978,
+      "refreshMs": 170.4842920000001,
+      "updateMs": 336.76729199999954,
+      "saveQueries": 5,
+      "updateQueries": 7,
+      "saveAndRefreshMs": 400.9112089999999,
+      "updateAndRefreshMs": 336.76729199999954
+    },
+    {
+      "saveMs": 223.5517920000002,
+      "refreshMs": 176.88779200000045,
+      "updateMs": 332.65979100000004,
+      "saveQueries": 5,
+      "updateQueries": 7,
+      "saveAndRefreshMs": 400.43958400000065,
+      "updateAndRefreshMs": 332.65979100000004
+    },
+    {
+      "saveMs": 217.62874999999985,
+      "refreshMs": 162.6390419999998,
+      "updateMs": 324.6632500000005,
+      "saveQueries": 5,
+      "updateQueries": 7,
+      "saveAndRefreshMs": 380.26779199999964,
+      "updateAndRefreshMs": 324.6632500000005
+    }
+  ],
+  "regressionChecks": [
+    "Missing settings initialized once; reminder defaults retained",
+    "Existing settings reads issue no writes",
+    "Failed update never reports success or changes state",
+    "Failed save never reports success or creates a record",
+    "Successful saves/updates preserve dueAt and reminderMinutes",
+    "Server-Timing contains stage durations without input data"
+  ],
+  "limits": "Excludes real mobile network, Supabase execution, cold starts, phone notification scheduling and optional connected Sheets. Screen probes measure API portions, not complete UI time; signup/login/recognition and physical-device times are unmeasured."
+}
