@@ -1,0 +1,11 @@
+{
+  "before": {
+    "cachedAccountATaskRenderedForAuthenticatedB": false,
+    "staleInitialResponseAppliedAfterConfirmedCompletion": false
+  },
+  "after": {
+    "cachedAccountATaskRenderedForAuthenticatedB": true,
+    "staleInitialResponseAppliedAfterConfirmedCompletion": true
+  },
+  "meaning": "Two regressions reproduced in actual transpiled component logic with synthetic hook state and deferred HTTP. This is not a live account exposure test or browser rendering measurement."
+}

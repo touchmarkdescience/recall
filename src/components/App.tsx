@@ -54,13 +54,7 @@ function routeFromHash():{view:View;contactId:string}{
 export default function App({initialAuthMode='register'}:{initialAuthMode?:'login'|'register'}){
   const [user,setUser]=useState<User|null|undefined>(undefined);
   const [mode,setMode]=useState('Local rules');const [transcriptionConfigured,setTranscriptionConfigured]=useState(false);const [transcriptionProvider,setTranscriptionProvider]=useState('None');const [pushConfigured,setPushConfigured]=useState(false);const [vapidKey,setVapidKey]=useState('');
-  const [dashboard,setDashboard]=useState<Dashboard>(()=>{
-    if(typeof window==='undefined')return {contacts:[],actions:[],interactions:[]};
-    try{
-      const cached=localStorage.getItem('recall_dashboard_cache');
-      return cached?JSON.parse(cached):{contacts:[],actions:[],interactions:[]};
-    }catch{return {contacts:[],actions:[],interactions:[]};}
-  });
+  const [dashboard,setDashboard]=useState<Dashboard>({contacts:[],actions:[],interactions:[]});
   const [dashboardLoading,setDashboardLoading]=useState(false);const [dashboardError,setDashboardError]=useState('');
   const [view,setView]=useState<View>(()=>routeFromHash().view);
   const [selectedContact,setSelectedContact]=useState<string>(()=>routeFromHash().contactId);const [error,setError]=useState('');const [toast,setToast]=useState('');
@@ -72,31 +66,52 @@ export default function App({initialAuthMode='register'}:{initialAuthMode?:'logi
   const [busy,setBusy]=useState(false);const [contactDetail,setContactDetail]=useState<ContactDetail|null>(null);
   const [contactSearch,setContactSearch]=useState('');const [notificationStatus,setNotificationStatus]=useState('');
   const writes=useRef(new WriteGuard()),refreshSequence=useRef(0);
+  const userRef=useRef<User|null|undefined>(user);
+  useEffect(()=>{userRef.current=user},[user]);
   const contactReadPending=useRef(false);
   const [contactReadRevision,setContactReadRevision]=useState(0);
   const [pendingWrites,setPendingWrites]=useState(0);
   const [failedUpdates,setFailedUpdates]=useState<Record<string,ActionPatch>>({});
 
-  const refresh=useCallback(async(background=false)=>{const read=writes.current.read(),sequence=++refreshSequence.current;if(!background)setDashboardLoading(true);try{const d=await api<Dashboard>('dashboard');if(sequence===refreshSequence.current&&writes.current.canApply(read)){setDashboard(d);setDashboardError('');try{localStorage.setItem('recall_dashboard_cache',JSON.stringify(d));}catch{}}}catch(e){if(sequence===refreshSequence.current&&writes.current.canApply(read))setDashboardError(e instanceof Error?e.message:'Could not load follow-ups.');throw e}finally{if(!background&&sequence===refreshSequence.current)setDashboardLoading(false)}},[]);
+  const applyDashboard=useCallback((d:Dashboard,read:{scope:number;revision:number},sequence:number,expectedAccountId?:string)=>{
+    if(sequence!==refreshSequence.current||!writes.current.canApply(read))return;
+    if(expectedAccountId&&userRef.current?.id!==expectedAccountId)return;
+    setDashboard(d);
+    setDashboardError('');
+  },[]);
+  const refresh=useCallback(async(background=false)=>{
+    const read=writes.current.read(),sequence=++refreshSequence.current;
+    const expectedAccountId=userRef.current?.id;
+    if(!background)setDashboardLoading(true);
+    try{
+      const d=await api<Dashboard>('dashboard');
+      applyDashboard(d,read,sequence,expectedAccountId);
+    }catch(e){
+      if(sequence===refreshSequence.current&&writes.current.canApply(read)&&(!expectedAccountId||userRef.current?.id===expectedAccountId))setDashboardError(e instanceof Error?e.message:'Could not load follow-ups.');
+      throw e;
+    }finally{
+      if(!background&&sequence===refreshSequence.current)setDashboardLoading(false);
+    }
+  },[applyDashboard]);
   useEffect(()=>{
+    try{localStorage.removeItem('recall_dashboard_cache');}catch{}
+    const read=writes.current.read(),sequence=++refreshSequence.current;
     const mePromise=api<{user:User|null;aiMode:string;transcriptionConfigured:boolean;transcriptionProvider:string;pushConfigured:boolean;vapidPublicKey:string}>('me');
     const dashPromise=api<Dashboard>('dashboard');
     mePromise.then(m=>{
+      userRef.current=m.user;
       setUser(m.user);setMode(m.aiMode);setTranscriptionConfigured(m.transcriptionConfigured);setTranscriptionProvider(m.transcriptionProvider);setPushConfigured(m.pushConfigured);setVapidKey(m.vapidPublicKey);
       if(m.user){
+        const expectedAccountId=m.user.id;
         dashPromise.then(d=>{
-          const read=writes.current.read();
-          if(writes.current.canApply(read)){
-            setDashboard(d);setDashboardError('');
-            try{localStorage.setItem('recall_dashboard_cache',JSON.stringify(d));}catch{}
-          }
+          applyDashboard(d,read,sequence,expectedAccountId);
         }).catch(e=>{
-          setDashboardError(e instanceof Error?e.message:'Could not load follow-ups.');
+          if(sequence===refreshSequence.current&&writes.current.canApply(read)&&userRef.current?.id===expectedAccountId)setDashboardError(e instanceof Error?e.message:'Could not load follow-ups.');
         });
       }
-    }).catch(e=>{setError(e.message);setUser(null)});
+    }).catch(e=>{setError(e.message);setUser(null);userRef.current=null;});
     if('serviceWorker'in navigator){if(process.env.NODE_ENV==='production')navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{});else navigator.serviceWorker.getRegistration('/').then(registration=>registration?.unregister()).catch(()=>{})}
-  },[]);
+  },[applyDashboard]);
   useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(''),4500);return()=>clearTimeout(t)}},[toast]);
   useEffect(()=>{window.scrollTo(0,0)},[view]);
   useEffect(()=>{if(view!=='capture')voiceRef.current?.leave()},[view]);
@@ -114,8 +129,8 @@ export default function App({initialAuthMode='register'}:{initialAuthMode?:'logi
   const sortedContacts=useMemo(()=>dashboard.contacts.filter(c=>c.name.toLowerCase().includes(contactSearch.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)),[dashboard.contacts,contactSearch]);
   const showError=(e:unknown)=>setError(e instanceof Error?e.message:String(e));
   useEffect(()=>{if(user!==null)return;let active=true;fetch('/api/security',{cache:'no-store'}).then(async response=>{const config=await response.json();if(!response.ok)throw new Error();if(active){setSignupSecurity(config);setSecurityError('')}}).catch(()=>{if(active)setSecurityError('Account security checks could not load. Refresh to retry; existing accounts can still sign in.')});return()=>{active=false}},[user]);
-  async function submitAuth(e:React.FormEvent){e.preventDefault();setError('');if(authMode==='register'&&!signupSecurity){setError('Security checks are still loading. Please retry shortly.');return}setBusy(true);try{let captchaToken='';if(authMode==='register'&&signupSecurity?.captchaRequired){if(!captchaRef.current)throw new Error('Security check is not ready. Please retry shortly.');captchaToken=await captchaRef.current.execute()}await api(authMode,'POST',{name:authName,email:authEmail,password:authPassword,...(authMode==='register'?{captchaToken}:{})});const m=await api<{user:User}>('me');setUser(m.user);await refresh();}catch(e){showError(e)}finally{setBusy(false);if(authMode==='register')setCaptchaCycle(value=>value+1)}}
-  async function logout(){if('serviceWorker'in navigator){try{const registration=await navigator.serviceWorker.getRegistration('/');const subscription=await registration?.pushManager?.getSubscription();if(subscription){await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(subscription.endpoint)}`,{method:'DELETE'});await subscription.unsubscribe()}}catch{}}await api('logout','POST',{});writes.current.reset();contactReadPending.current=false;setPendingWrites(0);setFailedUpdates({});setContactDetail(null);setToast('');setUser(null);try{localStorage.removeItem('recall_dashboard_cache');}catch{}setDashboard({contacts:[],actions:[],interactions:[]});setDashboardError('');setDashboardLoading(false);setView('home')}
+  async function submitAuth(e:React.FormEvent){e.preventDefault();setError('');if(authMode==='register'&&!signupSecurity){setError('Security checks are still loading. Please retry shortly.');return}setBusy(true);try{let captchaToken='';if(authMode==='register'&&signupSecurity?.captchaRequired){if(!captchaRef.current)throw new Error('Security check is not ready. Please retry shortly.');captchaToken=await captchaRef.current.execute()}await api(authMode,'POST',{name:authName,email:authEmail,password:authPassword,...(authMode==='register'?{captchaToken}:{})});const m=await api<{user:User}>('me');userRef.current=m.user;writes.current.reset();setUser(m.user);await refresh();}catch(e){showError(e)}finally{setBusy(false);if(authMode==='register')setCaptchaCycle(value=>value+1)}}
+  async function logout(){if('serviceWorker'in navigator){try{const registration=await navigator.serviceWorker.getRegistration('/');const subscription=await registration?.pushManager?.getSubscription();if(subscription){await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(subscription.endpoint)}`,{method:'DELETE'});await subscription.unsubscribe()}}catch{}}await api('logout','POST',{});writes.current.reset();userRef.current=null;contactReadPending.current=false;setPendingWrites(0);setFailedUpdates({});setContactDetail(null);setToast('');setUser(null);try{localStorage.removeItem('recall_dashboard_cache');}catch{}setDashboard({contacts:[],actions:[],interactions:[]});setDashboardError('');setDashboardLoading(false);setView('home')}
   function beginCapture(){if(!transcript)setOccurredAt(new Date().toISOString());setDraft(null);setDraftContactId('');setDraftContactName('');setError('');setView('capture');void voiceRef.current?.start()}
   function bottomMic(){if(view==='capture'){void voiceRef.current?.toggle();return}beginCapture()}
   function voicePreview(text:string){livePreviewRef.current=text;setLivePreview(text)}

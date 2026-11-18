@@ -10,6 +10,10 @@ import { createHash, scryptSync } from 'node:crypto';
 
 const label='optimized';
 const serve=process.argv.includes('--serve');
+const option=name=>process.argv.find(value=>value.startsWith(`--${name}=`))?.slice(name.length+3);
+const resultPath=option('output')||`docs/write-performance-${label}.json`;
+const startupStrategy=option('startup')||'parallel';
+assert(['sequential','parallel'].includes(startupStrategy));
 const password='Fixture-test-only-2026';
 const passwordHash='fixture:'+scryptSync(password,'fixture',64).toString('hex');
 const dbPort=3376, appPort=3375, delayMs=50, samples=7;
@@ -22,6 +26,9 @@ let userPresent=true;
 const settings={push_enabled:true,reminder_minutes:30,sheet_webhook_url:null,sheet_secret:null,transcription_provider:null};
 const dueAt=new Date(Date.now()+86400000).toISOString();
 let requests=[],action,interaction,outbox=0,settingsPresent=true,failWrite=null,activeRequests=0;
+let historySize=0,noteBatches=0,concurrentNoteReads=0,maxConcurrentNoteReads=0;
+const historyId=n=>`60000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+const historyNote=n=>({id:historyId(n),contact_id:null,transcript:`Historical fixture note ${n}`,summary:`Historical fixture ${n}`,occurred_at:dueAt,created_at:dueAt});
 const settle=async()=>{do{await new Promise(resolve=>setTimeout(resolve,150));}while(activeRequests>0);};
 const reset=()=>{requests=[];action=null;interaction=null;outbox=0;settingsPresent=true;failWrite=null;};
 const database=createServer(async(req,res)=>{
@@ -30,7 +37,10 @@ const database=createServer(async(req,res)=>{
  requests.push(`${req.method} ${url.pathname}`);
  let raw='';for await(const chunk of req)raw+=chunk;
  const body=raw?JSON.parse(raw):{};
+ const historicalRead=historySize>0&&url.pathname.endsWith('/recall_interactions')&&url.searchParams.has('id');
+ if(historicalRead){noteBatches++;concurrentNoteReads++;maxConcurrentNoteReads=Math.max(maxConcurrentNoteReads,concurrentNoteReads)}
  activeRequests++;await new Promise(resolve=>setTimeout(resolve,delayMs));activeRequests--;
+ if(historicalRead)concurrentNoteReads--;
  const name=url.pathname.slice('/rest/v1/'.length);
  let rows;
  if(name==='recall_sessions'){
@@ -69,9 +79,14 @@ const database=createServer(async(req,res)=>{
  } else if(name==='recall_actions'){
   if(req.method==='PATCH'&&failWrite==='action'){res.writeHead(503,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'Synthetic write failure'}));return;}
   if(req.method==='PATCH')Object.assign(action,body);
-  rows=action&&(!url.searchParams.has('contact_id')||url.searchParams.get('contact_id')===`eq.${action.contact_id}`)?[action]:[];
+  rows=historySize>0?Array.from({length:historySize},(_,n)=>({...action,id:`70000000-0000-4000-8000-${String(n).padStart(12,'0')}`,interaction_id:historyId(n)})):action&&(!url.searchParams.has('contact_id')||url.searchParams.get('contact_id')===`eq.${action.contact_id}`)?[action]:[];
  } else if(name==='recall_contacts')rows=serve||url.searchParams.has('id')?[contact]:[];
- else if(name==='recall_interactions')rows=interaction&&(!url.searchParams.has('contact_id')||url.searchParams.get('contact_id')===`eq.${interaction.contact_id}`)?[interaction]:[];
+ else if(name==='recall_interactions'){
+  if(historySize>0){
+   const ids=url.searchParams.get('id');
+   rows=ids?ids.slice(4,-1).split(',').map(id=>historyNote(Number(id.slice(-12)))):Array.from({length:30},(_,n)=>historyNote(n));
+  }else rows=interaction&&(!url.searchParams.has('contact_id')||url.searchParams.get('contact_id')===`eq.${interaction.contact_id}`)?[interaction]:[];
+ }
  else if(name==='recall_sheet_outbox'){
   if(req.method==='POST'){outbox++;rows=[{id:'40000000-0000-4000-8000-000000000001'}];}
   else rows=[];
@@ -83,7 +98,7 @@ const database=createServer(async(req,res)=>{
 });
 await new Promise(resolve=>database.listen(dbPort,'127.0.0.1',resolve));
 const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port',String(appPort)],{
- env:{...process.env,SUPABASE_URL:`http://127.0.0.1:${dbPort}`,SUPABASE_SECRET_KEY:'fixture-not-a-production-key',ABUSE_PROTECTION_ENABLED:'false',RECAPTCHA_SIGNUP_ENABLED:'false',OPENAI_API_KEY:'',NODE_ENV:'production'},stdio:['ignore','pipe','pipe'],
+ env:{...process.env,SUPABASE_URL:`http://127.0.0.1:${dbPort}`,SUPABASE_SECRET_KEY:'fixture-not-a-production-key',ABUSE_PROTECTION_ENABLED:'false',RECAPTCHA_SIGNUP_ENABLED:'false',OPENAI_API_KEY:'',GEMINI_API_KEY:'',GROQ_API_KEY:'',STT_PROVIDER:'groq',NODE_ENV:'production'},stdio:['ignore','pipe','pipe'],
 });
 let serverOutput='';child.stdout.on('data',d=>serverOutput+=d);child.stderr.on('data',d=>serverOutput+=d);
 const api=async(path,body,expectedStatus=200)=>{
@@ -120,7 +135,7 @@ try {
   assert.equal(update.result.action.status,'done');const updateRefresh={ms:0};
   if(sample>=0)runs.push({saveMs:save.ms,refreshMs:refresh.ms,updateMs:update.ms,saveQueries,updateQueries,saveAndRefreshMs:save.ms+refresh.ms,updateAndRefreshMs:update.ms+updateRefresh.ms});
  }
- let regressionChecks=[],screenApiTimingsMs;
+ let regressionChecks=[],screenApiTimingsMs,startupAndHistory;
  if(label==='optimized'){
   const probes={identity:()=>api('me'),dashboard:()=>api('dashboard'),personHistory:()=>api('contact?id=50000000-0000-4000-8000-000000000001'),reviewExtraction:()=>api('extract',{transcript:'Tomorrow I have a call with Arvind. Remind me today at 6 PM.'}),settings:()=>api('settings')};
   screenApiTimingsMs={};
@@ -128,6 +143,29 @@ try {
    await probe();const durations=[];
    for(let n=0;n<samples;n++)durations.push((await timed(probe)).ms);
    screenApiTimingsMs[name]=Math.round(median(durations)*10)/10;
+  }
+  if(process.argv.includes('--compare-startup')){
+   const startup=[],largeDashboard=[],batches=[],concurrency=[];
+   for(let n=-1;n<samples;n++){
+    const measured=await timed(async()=>{
+     let me,dashboard;
+     if(startupStrategy==='parallel')[me,dashboard]=await Promise.all([api('me'),api('dashboard')]);
+     else{me=await api('me');dashboard=await api('dashboard')}
+     assert.equal(me.user.id,user.id);assert.equal(dashboard.actions.length,1);
+    });
+    if(n>=0)startup.push(measured.ms);
+   }
+   historySize=330;
+   for(let n=-1;n<samples;n++){
+    noteBatches=0;maxConcurrentNoteReads=0;
+    const measured=await timed(async()=>{
+     const dashboard=await api('dashboard');assert.equal(dashboard.actions.length,330);
+     for(let i=0;i<330;i++)assert.equal(dashboard.actions[i].originalNote,`Historical fixture note ${i}`);
+    });
+    if(n>=0){largeDashboard.push(measured.ms);batches.push(noteBatches);concurrency.push(maxConcurrentNoteReads)}
+   }
+   historySize=0;
+   startupAndHistory={strategy:startupStrategy,authenticatedStartupDataMs:Math.round(median(startup)*10)/10,largeDashboardMs:Math.round(median(largeDashboard)*10)/10,actions:330,latestNotes:30,missingNoteBatches:median(batches),maxConcurrentNoteBatches:median(concurrency),startupRunsMs:startup,largeDashboardRunsMs:largeDashboard,limits:'Actual HTTP routes, composed in the audited client request order. No browser rendering, cached paint, real database or external AI measured.'};
   }
   await settle();settingsPresent=false;requests=[];
   const config=await api('settings');
@@ -150,8 +188,8 @@ try {
   userPresent=false;assert.equal((await api('me')).user,null);userPresent=true;
   regressionChecks=['Joined session lookup rejects missing/invalid/expired sessions and deleted accounts','Missing settings initialized once; reminder defaults retained','Existing settings reads issue no writes','Failed update never reports success or changes state','Failed save never reports success or creates a record','Successful saves/updates preserve dueAt and reminderMinutes','Server-Timing contains stage durations without input data'];
  }
- const report={label,environment:'localhost production Next.js + in-memory PostgREST fixture; no production writes',fixtureDatabaseDelayMs:delayMs,samples,median:Object.fromEntries(Object.keys(runs[0]).map(k=>[k,Math.round(median(runs.map(r=>r[k]))*10)/10])),screenApiTimingsMs,runs,regressionChecks,limits:'Database counts include foreground calls only; Sheets delivery runs after response. Excludes real mobile network, Supabase execution, cold starts, phone notification scheduling and optional connected Sheets. Screen probes measure API portions, not complete UI time; signup/login/recognition and physical-device times are unmeasured.'};
- writeFileSync(`docs/write-performance-${label}.json`,JSON.stringify(report,null,2)+'\n');
+ const report={label,revision:option('revision'),environment:'localhost production Next.js + in-memory PostgREST fixture; no production writes',fixtureDatabaseDelayMs:delayMs,samples,median:Object.fromEntries(Object.keys(runs[0]).map(k=>[k,Math.round(median(runs.map(r=>r[k]))*10)/10])),screenApiTimingsMs,startupAndHistory,runs,regressionChecks,limits:'Database counts include foreground calls only; Sheets delivery runs after response. Excludes real mobile network, Supabase execution, cold starts, phone notification scheduling and optional connected Sheets. Screen probes measure API portions, not complete UI time; signup/login/recognition and physical-device times are unmeasured.'};
+ writeFileSync(resultPath,JSON.stringify(report,null,2)+'\n');
  console.log(JSON.stringify({...report,runs:undefined},null,2));
  }
 } finally {

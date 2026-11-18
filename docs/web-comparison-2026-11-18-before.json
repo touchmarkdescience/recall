@@ -1,0 +1,126 @@
+{
+  "label": "optimized",
+  "revision": "8d63f65",
+  "environment": "localhost production Next.js + in-memory PostgREST fixture; no production writes",
+  "fixtureDatabaseDelayMs": 50,
+  "samples": 7,
+  "median": {
+    "saveMs": 108.9,
+    "refreshMs": 0,
+    "updateMs": 113.2,
+    "saveQueries": 2,
+    "updateQueries": 2,
+    "saveAndRefreshMs": 108.9,
+    "updateAndRefreshMs": 113.2
+  },
+  "screenApiTimingsMs": {
+    "identity": 113.3,
+    "dashboard": 113.9,
+    "personHistory": 168.8,
+    "reviewExtraction": 117.9,
+    "settings": 114.8
+  },
+  "startupAndHistory": {
+    "strategy": "sequential",
+    "authenticatedStartupDataMs": 229.9,
+    "largeDashboardMs": 283,
+    "actions": 330,
+    "latestNotes": 30,
+    "missingNoteBatches": 3,
+    "maxConcurrentNoteBatches": 1,
+    "startupRunsMs": [
+      229.89558299999953,
+      228.26045899999917,
+      230.0747909999991,
+      225.6337079999994,
+      230.89916599999924,
+      232.3423330000005,
+      222.6479589999999
+    ],
+    "largeDashboardRunsMs": [
+      282.9509170000001,
+      281.2482909999999,
+      278.8665000000001,
+      269.72979099999975,
+      289.9825000000001,
+      288.01891700000124,
+      290.09058299999924
+    ],
+    "limits": "Actual HTTP routes, composed in the audited client request order. No browser rendering, cached paint, real database or external AI measured."
+  },
+  "runs": [
+    {
+      "saveMs": 108.92304200000012,
+      "refreshMs": 0,
+      "updateMs": 108.90258300000005,
+      "saveQueries": 2,
+      "updateQueries": 2,
+      "saveAndRefreshMs": 108.92304200000012,
+      "updateAndRefreshMs": 108.90258300000005
+    },
+    {
+      "saveMs": 108.21870799999988,
+      "refreshMs": 0,
+      "updateMs": 108.03724999999986,
+      "saveQueries": 2,
+      "updateQueries": 2,
+      "saveAndRefreshMs": 108.21870799999988,
+      "updateAndRefreshMs": 108.03724999999986
+    },
+    {
+      "saveMs": 108.15570799999978,
+      "refreshMs": 0,
+      "updateMs": 137.5662080000002,
+      "saveQueries": 2,
+      "updateQueries": 2,
+      "saveAndRefreshMs": 108.15570799999978,
+      "updateAndRefreshMs": 137.5662080000002
+    },
+    {
+      "saveMs": 139.77479200000016,
+      "refreshMs": 0,
+      "updateMs": 107.3862920000006,
+      "saveQueries": 2,
+      "updateQueries": 2,
+      "saveAndRefreshMs": 139.77479200000016,
+      "updateAndRefreshMs": 107.3862920000006
+    },
+    {
+      "saveMs": 107.4507079999994,
+      "refreshMs": 0,
+      "updateMs": 117.67008299999998,
+      "saveQueries": 2,
+      "updateQueries": 2,
+      "saveAndRefreshMs": 107.4507079999994,
+      "updateAndRefreshMs": 117.67008299999998
+    },
+    {
+      "saveMs": 116.90312499999982,
+      "refreshMs": 0,
+      "updateMs": 113.23391700000047,
+      "saveQueries": 2,
+      "updateQueries": 2,
+      "saveAndRefreshMs": 116.90312499999982,
+      "updateAndRefreshMs": 113.23391700000047
+    },
+    {
+      "saveMs": 110.92954199999986,
+      "refreshMs": 0,
+      "updateMs": 115.8192909999998,
+      "saveQueries": 2,
+      "updateQueries": 2,
+      "saveAndRefreshMs": 110.92954199999986,
+      "updateAndRefreshMs": 115.8192909999998
+    }
+  ],
+  "regressionChecks": [
+    "Joined session lookup rejects missing/invalid/expired sessions and deleted accounts",
+    "Missing settings initialized once; reminder defaults retained",
+    "Existing settings reads issue no writes",
+    "Failed update never reports success or changes state",
+    "Failed save never reports success or creates a record",
+    "Successful saves/updates preserve dueAt and reminderMinutes",
+    "Server-Timing contains stage durations without input data"
+  ],
+  "limits": "Database counts include foreground calls only; Sheets delivery runs after response. Excludes real mobile network, Supabase execution, cold starts, phone notification scheduling and optional connected Sheets. Screen probes measure API portions, not complete UI time; signup/login/recognition and physical-device times are unmeasured."
+}
