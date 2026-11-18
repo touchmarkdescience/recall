@@ -3,6 +3,15 @@ export const TRANSCRIPTION_PROMPT = `Transcribe this entire sales follow-up reco
 export const transcriptionModel = (configured?: string) => configured?.trim() || 'gemini-3.5-flash-lite';
 export function transcriptionPayload(audio: string, mime: string) { return { audio, mime: mime.split(';')[0], language:'auto' as const };  }
 export function appendTranscript(previous:string,segment:string){const next=segment.trim();return next?previous+(previous&&!/\s$/.test(previous)?' ':'')+next:previous}
+// Preserve the text visible at Stop. A final event may add words, not rewrite them.
+export function appendSpeechTail(visible:string,final:string){
+  const prefix=visible.trim(),candidate=final.trim();if(!prefix)return candidate;
+  if(candidate.startsWith(prefix)&&!(/[\p{L}\p{M}\p{N}]/u.test(prefix.at(-1)||'')&&/[\p{L}\p{M}\p{N}]/u.test(candidate[prefix.length]||'')))return candidate;
+  const tokens=(text:string)=>[...text.matchAll(/[\p{L}\p{M}\p{N}]+/gu)];
+  const a=tokens(prefix),b=tokens(candidate);
+  if(!a.length||b.length<=a.length||a.some((token,i)=>token[0].toLocaleLowerCase()!==b[i]?.[0].toLocaleLowerCase()))return prefix;
+  return appendTranscript(prefix,candidate.slice(b[a.length].index));
+}
 // Browser speech and recorded-audio services can disagree, especially on names.
 // Retain the visible words and require a choice instead of silently rewriting them.
 export function reconcileTranscript(previous:string,live:string,fallback:string,service:string){

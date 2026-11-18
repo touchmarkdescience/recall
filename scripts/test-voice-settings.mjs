@@ -76,7 +76,7 @@ const actualStt=load('src/lib/stt.ts',{'server-only':{},'./transcription':{TRANS
 const oldLanguage=process.env.STT_LANGUAGE,oldKey=process.env.GROQ_API_KEY;
 try{
  process.env.GROQ_API_KEY='fixture-only';delete process.env.STT_LANGUAGE;
- await actualStt.transcribeAudio({bytes:Buffer.from('fixture'),mime:'audio/wav'},'groq');assert.equal(uploads.at(-1).has('language'),false);
+ await actualStt.transcribeAudio({bytes:Buffer.from('fixture'),mime:'audio/wav'},'groq');assert.equal(uploads.at(-1).has('language'),false);assert.equal(uploads.at(-1).get('model'),'whisper-large-v3');
  process.env.STT_LANGUAGE='auto';await actualStt.transcribeAudio({bytes:Buffer.from('fixture'),mime:'audio/wav'},'groq');assert.equal(uploads.at(-1).has('language'),false);
  process.env.STT_LANGUAGE='en';await actualStt.transcribeAudio({bytes:Buffer.from('fixture'),mime:'audio/wav'},'groq',{language:'auto',vocabulary:['Arumugam','ஆறுமுகம்']});assert.equal(uploads.at(-1).has('language'),false);assert(uploads.at(-1).get('prompt').includes('Arumugam'));assert.equal(transcriptionPayload('YQ==','audio/webm;codecs=opus').language,'auto');
  const oldGemini=process.env.GEMINI_API_KEY;try{process.env.GEMINI_API_KEY='fixture-only';assert.equal(await actualStt.transcribeAudio({bytes:Buffer.from('fixture'),mime:'audio/wav'},'gemini',{language:'auto',vocabulary:['Arumugam']}),tamil)}finally{if(oldGemini===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldGemini}
@@ -119,7 +119,16 @@ for(const words of ['Set a reminder for 5:00 a.m. to prepare presentation with A
  const App=load('src/components/App.tsx',appMocks,{window:{location:{hash:'#capture',pathname:'/app',search:''}},navigator:{userAgent:'fixture'},fetch:async()=>{networkCalls++;throw new Error('Review must not depend on network')}}).default;
  const tree=App({});const start=performance.now();await button(tree,'Review details').props.onClick();
  const draft=writes.find(write=>write.name==='draft')?.value;assert(draft);assert.equal(networkCalls,0);assert.equal(draft.summary,words);assert(writes.some(write=>write.name==='view'&&write.value==='review'));
- if(words===tamil){assert.equal(draft.needsManualReview,true);assert.equal(draft.actions[0].timeSpecified,false)}else assert.equal(draft.contactName,'Arumugam');
+ if(words===tamil){assert.equal(draft.actions[0].kind,'follow_up');assert.equal(draft.actions[0].timeSpecified,false);assert(draft.actions[0].dueAt)}else assert.equal(draft.contactName,'Arumugam');
  assert(performance.now()-start<3000);
 }
 console.log('PASS actual Review handler preserves English/Tamil words and opens a draft without network or mandatory timing');
+
+const meetingDraft=createReviewDraft('நாளைக்கு 3 மணிக்கு ஆரியப்பன் கூட ஒரு மீட்டிங் இருக்கு ஸ்கெடியூல் பண்ண',new Date('2026-11-18T15:30:00Z'));
+let chosen;
+const Due=load('src/components/ReviewDue.tsx',{react:{useState:()=>[false,()=>{}]},'react/jsx-runtime':{jsx,jsxs:jsx},'./ReminderChips':{__esModule:true,default:function Stub(){}},'./IstDateTimePicker':{__esModule:true,default:function Stub(){}}}).default;
+const dueTree=Due({value:meetingDraft.actions[0],onChange:value=>{chosen=value}});
+assert(text(dueTree).includes('AM or PM was not specified'));
+button(dueTree,'3:00 PM').props.onClick();
+assert.equal(chosen.kind,'meeting');assert.equal(chosen.dueAt,'2026-11-19T09:30:00.000Z');assert.equal(chosen.timeSpecified,true);assert.equal(chosen.timeChoices,undefined);
+console.log('PASS actual review choice selects tomorrow 3 p.m. for the reported Tamil meeting');

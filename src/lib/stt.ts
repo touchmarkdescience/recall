@@ -35,7 +35,7 @@ async function groqTranscribe(file:AudioFile,options:TranscriptionOptions):Promi
   const upload=new FormData();
   const extension=file.mime==='audio/mp4'?'mp4':file.mime==='audio/ogg'?'ogg':file.mime==='audio/wav'?'wav':'webm';
   upload.set('file',new Blob([new Uint8Array(file.bytes)],{type:file.mime}),`note.${extension}`);
-  upload.set('model',process.env.STT_MODEL?.trim()||'whisper-large-v3-turbo');
+  upload.set('model',process.env.STT_MODEL?.trim()||'whisper-large-v3');
   // Omit language for automatic detection of Tamil/English recordings.
   const language=options.language??process.env.STT_LANGUAGE?.trim();
   if(language&&language!=='auto')upload.set('language',language);

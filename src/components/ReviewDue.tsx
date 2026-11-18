@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 import ReminderChips from './ReminderChips';
 import IstDateTimePicker from './IstDateTimePicker';
 
-export type ReviewDueValue={dueAt:string|null;timeSpecified?:boolean;timeChoices?:string[];reminderMinutes?:number};
+export type ReviewDueValue={dueAt:string|null;timeSpecified?:boolean;timeChoices?:string[];timeAmbiguity?:'period';reminderMinutes?:number};
 const display=(value:string,timed=true)=>DateTime.fromISO(value).setZone('Asia/Kolkata').toFormat(timed?'ccc, d LLL · h:mm a':'ccc, d LLL');
 
 export default function ReviewDue({value,onChange}:{value:ReviewDueValue;onChange:(value:ReviewDueValue)=>void}){
@@ -14,8 +14,8 @@ export default function ReviewDue({value,onChange}:{value:ReviewDueValue;onChang
   const unset=value.timeSpecified===true&&!value.dueAt;
   const past=!!value.dueAt&&DateTime.fromISO(value.dueAt).setZone('Asia/Kolkata').toMillis()<(value.timeSpecified===false?DateTime.now().setZone('Asia/Kolkata').startOf('day').toMillis():Date.now());
   return <div className="review-due">
-    {ambiguous?<div className="review-due-conflict" role="alert"><strong>Which time did you mean?</strong><p>Two times were spoken. Choose one before saving.</p><div className="review-due-choices">{choices.map(choice=><button type="button" key={choice} onClick={()=>{onChange({...value,dueAt:choice,timeSpecified:true,timeChoices:undefined});setEditing(false)}}>{display(choice)} IST</button>)}</div></div>:<div className="review-due-summary"><span className={unset?'ist-picker-warning':undefined}>{unset?'Not set — choose a time':value.dueAt?`${display(value.dueAt,value.timeSpecified!==false)}${value.timeSpecified===false?' · any time':' IST'}`:'No date · unscheduled task'}</span><button type="button" onClick={()=>setEditing(!editing)} aria-expanded={editing}>{editing?'Close':value.dueAt?'Edit':'Add date'}</button></div>}
-    {value.dueAt&&!ambiguous&&value.timeSpecified!==false&&<button type="button" className="secondary" onClick={()=>onChange({...value,timeSpecified:false,timeChoices:undefined,reminderMinutes:0})}>Date only · no individual alert</button>}
+    {ambiguous?<div className="review-due-conflict" role="alert"><strong>Which time did you mean?</strong><p>{value.timeAmbiguity==='period'?'AM or PM was not specified. Choose the time you meant.':'Two times were spoken. Choose one before saving.'}</p><div className="review-due-choices">{choices.map(choice=><button type="button" key={choice} onClick={()=>{onChange({...value,dueAt:choice,timeSpecified:true,timeChoices:undefined,timeAmbiguity:undefined});setEditing(false)}}>{display(choice)} IST</button>)}</div></div>:<div className="review-due-summary"><span className={unset?'ist-picker-warning':undefined}>{unset?'Not set — choose a time':value.dueAt?`${display(value.dueAt,value.timeSpecified!==false)}${value.timeSpecified===false?' · any time':' IST'}`:'No date · unscheduled task'}</span><button type="button" onClick={()=>setEditing(!editing)} aria-expanded={editing}>{editing?'Close':value.dueAt?'Edit':'Add date'}</button></div>}
+    {value.dueAt&&!ambiguous&&value.timeSpecified!==false&&<button type="button" className="review-date-only" onClick={()=>onChange({...value,timeSpecified:false,timeChoices:undefined,reminderMinutes:0})}>Date only · no individual alert</button>}
     {editing&&<IstDateTimePicker value={value.dueAt} timeSpecified={value.timeSpecified??Boolean(value.dueAt)} onChange={(dueAt,timeSpecified)=>onChange({...value,dueAt,timeSpecified,timeChoices:undefined})}/>}
     <ReminderChips dueAt={value.dueAt} timed={value.timeSpecified!==false} minutes={value.reminderMinutes??0} onChange={reminderMinutes=>onChange({...value,reminderMinutes})}/>
     {past&&<small className="ist-picker-warning">This spoken date is already past. Review it before saving.</small>}

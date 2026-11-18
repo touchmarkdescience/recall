@@ -1,7 +1,7 @@
 import * as chrono from 'chrono-node';
 import { DateTime } from 'luxon';
 
-export type DraftAction = { kind: 'follow_up'|'reminder'|'meeting'; title: string; dueAt: string | null; timeSpecified?: boolean; durationMinutes?: number; reminderMinutes?: number; timeChoices?: string[] };
+export type DraftAction = { kind: 'follow_up'|'reminder'|'meeting'; title: string; dueAt: string | null; timeSpecified?: boolean; durationMinutes?: number; reminderMinutes?: number; timeChoices?: string[];timeAmbiguity?:'period' };
 export type Extraction = { contactName: string; topic: string; summary: string; actions: DraftAction[]; mode: 'AI'|'Local rules';needsManualReview?:boolean };
 const zone='Asia/Kolkata';
 const normalizeTime=(text:string)=>text.replace(/\b([ap])\.?m\.?/gi,'$1m').replace(/(\d{1,2})\.(\d{2})\b/g,'$1:$2');
@@ -54,6 +54,59 @@ export function parseIST(phrase: string, now=new Date()): string | null {
   const c=result.start;
   return DateTime.fromObject({year:c.get('year')||base.year,month:c.get('month')||base.month,day:c.get('day')||base.day,hour:spoken?.hour??(c.isCertain('hour')?(c.get('hour')??9):9),minute:spoken?.minute??(c.isCertain('minute')?(c.get('minute')??0):0)},{zone}).toUTC().toISO();
 }
+// Parse a small, explicit Tamil/Tanglish scheduling grammar without rewriting speech.
+// Unknown phrasing still becomes an editable draft instead of an invented schedule.
+export function tamilExtract(transcript:string,now=new Date()):Extraction|null{
+ const clean=transcript.trim();if(!/[\u0B80-\u0BFF]/.test(clean))return null;
+ const meeting=/(?:மீட்டிங்|மீட்டிங்க்|மீட்|சந்திப்பு|சந்திக்க|\bmeet(?:ing)?\b)/iu.test(clean);
+ const reminder=/(?:ரிமைண்டர்|நினைவூட்டு|\bremind(?:er)?\b)/iu.test(clean);
+ const task=/(?:ஃபாலோ|பேசணும்|பேச\s*வேண்டும்|பாக்கணும்|கால்|அழைக்க|\bfollow[ -]?up\b|\bcall\b)/iu.test(clean);
+ if(!meeting&&!reminder&&!task)return null;
+ const kind:DraftAction['kind']=meeting?'meeting':reminder?'reminder':'follow_up';
+ const dateParts:string[]=[];
+ if(/நாளை\s*மறுநாள்|நாளைக்கு\s*மறுநாள்|day after tomorrow/iu.test(clean))dateParts.push('day after tomorrow');
+ else if(/நாளை(?:க்கு)?|\btomorrow\b/iu.test(clean))dateParts.push('tomorrow');
+ if(/இன்று|இன்னைக்கு|\btoday\b/iu.test(clean))dateParts.push('today');
+ const weekdays=[['திங்கள்','monday'],['செவ்வாய்','tuesday'],['புதன்','wednesday'],['வியாழன்','thursday'],['வெள்ளி','friday'],['சனி','saturday'],['ஞாயிறு','sunday'],['ஃபிரைடே','friday'],['சாட்டர்டே','saturday']] as const;
+ for(const [ta,en]of weekdays)if(clean.includes(ta))dateParts.push(`${/அடுத்த|நெக்ஸ்ட்|\bnext\b/iu.test(clean)?'next ':''}${en}`);
+ const days=[...new Set(dateParts)];if(days.length>1)return null;
+ const day=days[0]||'';
+ const numbers:Record<string,string>={'ஒன்று':'1','ஒரு':'1','ஒன்னு':'1','இரண்டு':'2','ரெண்டு':'2','மூன்று':'3','மூணு':'3','நான்கு':'4','நாலு':'4','ஐந்து':'5','அஞ்சு':'5','ஆறு':'6','ஏழு':'7','எட்டு':'8','ஒன்பது':'9','பத்து':'10','பதினொன்று':'11','பன்னிரண்டு':'12'};
+ let scheduling=clean.replace(/[௦-௯]/g,digit=>String('௦௧௨௩௪௫௬௭௮௯'.indexOf(digit)));
+ for(const [word,digit]of Object.entries(numbers).sort((a,b)=>b[0].length-a[0].length))scheduling=scheduling.replace(new RegExp(`(^|[\\s,])${word}\\s*(?=மணி)`,'gu'),`$1${digit} `);
+ const tamilClocks=[...scheduling.matchAll(/(\d{1,2})(?::(\d{2}))?\s*மணி(?:க்கு|யளவில்|க்குள்)?/gu)];
+ if(tamilClocks.length>1)return null;
+ const englishClocks=[...normalizeTime(scheduling).matchAll(explicitTime)];
+ const tamilClock=tamilClocks[0];
+ if(tamilClock&&englishClocks.some(match=>match.index!<tamilClock.index!||match.index!>=tamilClock.index!+tamilClock[0].length))return null;
+ const englishClock=timeOf(scheduling);
+ if(!tamilClock&&englishClocks.length>1)return null;
+ const hour=tamilClock?Number(tamilClock[1]):englishClock?.hour;
+ const minute=tamilClock?Number(tamilClock[2]||0):englishClock?.minute??0;
+ const pm=/(?:மதியம்|பிற்பகல்|மாலை|இரவு|\bafternoon\b|\bevening\b|\bnight\b|\bp\.?m\.?)/iu.test(clean);
+ const am=/(?:காலை|அதிகாலை|\bmorning\b|\ba\.?m\.?)/iu.test(clean);
+ if(am&&pm)return null;
+ let dueAt:string|null=day?parseIST(day,now):null;
+ let timeChoices:string[]|undefined;
+ let timeAmbiguity:'period'|undefined;
+ const timed=hour!==undefined;
+ if(timed){
+  if(hour!<0||hour!>23||minute>59)return null;
+  if(englishClock?.period&&!tamilClock)dueAt=parseIST(`${day} at ${hour}:${String(minute).padStart(2,'0')}`,now);
+  else if(am||pm){if(hour!>12)return null;dueAt=parseIST(`${day} at ${hour===0?12:hour}:${String(minute).padStart(2,'0')} ${pm?'pm':'am'}`,now)}
+  else if(hour!>=1&&hour!<=12){
+   const candidates=['am','pm'].map(period=>parseIST(`${day} at ${hour}:${String(minute).padStart(2,'0')} ${period}`,now)).filter((value):value is string=>!!value);
+   const future=candidates.filter(value=>Date.parse(value)>now.getTime());
+   timeChoices=future.length?future:candidates;
+   if(timeChoices.length===1){dueAt=timeChoices[0];timeChoices=undefined}else{dueAt=null;timeAmbiguity='period'}
+  }else dueAt=parseIST(`${day} at ${hour}:${String(minute).padStart(2,'0')}`,now);
+ }
+ const before=clean.match(/([\p{L}\p{M}'-]+)\s+(?:கூட|உடன்|கிட்ட(?:ே)?)(?:\s|[.,]|$)/u)?.[1]||clean.match(/([\p{L}\p{M}'-]+?)(?:கிட்டே|கிட்ட)(?=\s|[.,]|$)/u)?.[1]||'';
+ const withEnglish=clean.match(/\bwith\s+([\p{L}\p{M}'-]+)(?=\s+(?:sir|at|on|tomorrow|today)\b|[.,]|$)/iu)?.[1]||'';
+ const contactName=/^(?:நான்|எனக்கு|நாளைக்கு|நாளை)$/.test(before)?'':before||withEnglish;
+ return {contactName,topic:'',summary:clean,actions:[{kind,title:clean.slice(0,500),dueAt,timeSpecified:timed,reminderMinutes:0,timeChoices,timeAmbiguity}],mode:'Local rules'};
+}
+
 export function templateExtract(transcript: string, now=new Date()): Extraction | null {
   const clean=transcript.trim();
   const actionLabel=/\b(?:action|instruction)\s*:?\s+/i.exec(clean);
@@ -170,7 +223,7 @@ export function localExtract(transcript: string, now=new Date()): Extraction {
   if(natural) return natural;
   const normalized=clean.replace(/\b(Dr|Mr|Mrs|Ms|Prof)\.(?=\s)/gi,'$1');
   const caller=normalized.match(/^([\p{L}\p{M}'-]+(?:\s+[\p{L}\p{M}'-]+){0,2})\s+(?:called|contacted|pinged|messaged)\s+(?:me|us)\b/iu)?.[1]||'';
-  const match=normalized.match(/\b(?:spoke (?:to|with)|talked (?:to|with)|met(?: with)?|discussion with|called|call(?: with)?|meeting(?: with)?|meet(?: with)?|follow[ -]up with)\s+((?:(?:Dr|Mr|Mrs|Ms|Prof)\s+)?[\p{L}\p{M}'-]+(?:\s+[\p{L}\p{M}'-]+){0,2}?)(?=\s+(?:on|at|by|about|for|to|tomorrow|today|next|in|after|another|and|or|sir)\b|[.,;!?]|$)/iu);
+  const match=normalized.match(/\b(?:spoke (?:to|with)|talked (?:to|with)|met(?: with)?|discussion with|called|call(?: with)?|meeting(?: with)?|appointment(?: with)?|meet(?: with)?|follow[ -]up with)\s+((?:(?:Dr|Mr|Mrs|Ms|Prof)\s+)?[\p{L}\p{M}'-]+(?:\s+[\p{L}\p{M}'-]+){0,2}?)(?=\s+(?:on|at|by|about|for|to|tomorrow|today|next|in|after|another|and|or|sir)\b|[.,;!?]|$)/iu);
   const candidate=(caller||match?.[1]?.trim()||'').replace(/\s+sir$/i,'').trim();
   const contactName=candidate&&!/^(me|him|her|them|us|today|tomorrow|client|customer|prospect|team|someone|anyone)$/i.test(candidate)?candidate:'';
   const topic=clean.match(/\babout\s+(.+?)(?=\s*(?:[;,.]|\bremind\b|\bor\b|$))/i)?.[1]?.trim()||'';
@@ -181,7 +234,7 @@ export function localExtract(transcript: string, now=new Date()): Extraction {
   const actions: DraftAction[]=[];
   for(const segment of segments) {
     const futureDiscussion=/\b(?:discuss|discussion|discussing)\b/i.test(segment)&&/\b(?:tomorrow|next|will|planned|plan to|at \d|by \d|on \w+day)\b/i.test(segment);
-    const kind=/\b(meet|meeting|schedule|reschedule)\b/i.test(segment)||futureDiscussion?'meeting':/\b(remind|reminder)\b/i.test(segment)?'reminder':/\b(follow up|call|send|share|submit|deliver|prepare|update|finish|check back|reach out|get back)\b/i.test(segment)?'follow_up':null;
+    const kind=/\b(meet|meeting|appointment|schedule|reschedule)\b/i.test(segment)||futureDiscussion?'meeting':/\b(remind|reminder)\b/i.test(segment)?'reminder':/\b(follow up|call|send|share|submit|deliver|prepare|update|finish|check back|reach out|get back)\b/i.test(segment)?'follow_up':null;
     if(!kind) continue;
     if(/\b(?:spoke|talked|called|met)\b/i.test(segment) && !/\b(?:need to|should|will|please|next|again|tomorrow|today|in \d+ days?|at \d|on \w+day)\b/i.test(segment)) continue;
     const dayContext=segment.match(/\b(?:day after tomorrow|tomorrow|today|in \d+ days?|on \w+day)\b/i)?.[0]||'';
@@ -192,13 +245,26 @@ export function localExtract(transcript: string, now=new Date()): Extraction {
 }
 // Client-safe fast path: only clear rule-based results bypass server AI.
 export function fastExtract(transcript:string,now=new Date()):Extraction|null{
+ const tamil=tamilExtract(transcript,now);if(tamil)return tamil;
  const template=templateExtract(transcript,now);if(template)return template;
  const natural=naturalExtract(transcript,now);if(natural)return natural;
  if(/[\u0B80-\u0BFF]/.test(transcript))return null;
- if(!/^(?:please\s+)?(?:follow[ -]?up|call|meet|send|prepare|discuss)\b/i.test(transcript.trim()))return null;
+ if(!/\b(?:follow[ -]?up|call|meet(?:ing)?|appointment|send|prepare|discuss)\b/i.test(transcript))return null;
  if(/\b(?:and|also|then)\b|[;\n]/i.test(transcript))return null;
+ if(new Set([...normalizeTime(transcript).matchAll(explicitTime)].map(match=>match[0].toLowerCase())).size>1)return null;
  const result=localExtract(transcript,now);
- return result.actions.length===1?result:null;
+ if(result.actions.length!==1)return null;
+ const action=result.actions[0],clock=timeOf(transcript);
+ if(action.kind==='meeting'&&clock&&!clock.period&&clock.hour>=1&&clock.hour<=12){
+  const normalized=normalizeTime(transcript),match=[...normalized.matchAll(explicitTime)][0];
+  const withoutClock=match?normalized.slice(0,match.index!)+normalized.slice(match.index!+match[0].length):normalized;
+  const period=/\b(?:afternoon|evening|night)\b/i.test(transcript)?'pm':/\bmorning\b/i.test(transcript)?'am':null;
+  const choices=(period?[period]:['am','pm']).map(period=>parseIST(`${withoutClock} at ${clock.hour}:${String(clock.minute).padStart(2,'0')} ${period}`,now)).filter((value):value is string=>!!value);
+  const future=choices.filter(value=>Date.parse(value)>now.getTime()),usable=future.length?future:choices;
+  if(usable.length===1)return {...result,actions:[{...action,dueAt:usable[0]}]};
+  return {...result,actions:[{...action,dueAt:null,timeChoices:usable,timeAmbiguity:'period'}]};
+ }
+ return result;
 }
 
 // Always let the user review their own words; uncertain speech does not trigger AI.

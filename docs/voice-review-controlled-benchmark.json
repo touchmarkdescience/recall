@@ -9,44 +9,44 @@
   "beforeRevision": "651072e",
   "before": [
     {
-      "stopToTextMs": 958.4,
-      "stopToDraftDataMs": 1309,
+      "stopToTextMs": 944.2,
+      "stopToDraftDataMs": 1295.5,
       "transcriptionRequests": 1,
       "text": "Set a reminder for 5:00 a.m. to prepare presentation with R mugam"
     },
     {
-      "stopToTextMs": 943,
-      "stopToDraftDataMs": 1294.1,
+      "stopToTextMs": 942.7,
+      "stopToDraftDataMs": 1292.9,
       "transcriptionRequests": 1,
       "text": "Set a reminder for 5:00 a.m. to prepare presentation with R mugam"
     },
     {
-      "stopToTextMs": 942.3,
-      "stopToDraftDataMs": 1293.4,
+      "stopToTextMs": 942.5,
+      "stopToDraftDataMs": 1294.4,
       "transcriptionRequests": 1,
       "text": "Set a reminder for 5:00 a.m. to prepare presentation with R mugam"
     }
   ],
   "after": [
     {
-      "stopToTextMs": 244.6,
-      "stopToDraftDataMs": 301.4,
+      "stopToTextMs": 244.3,
+      "stopToDraftDataMs": 316.4,
       "transcriptionRequests": 0,
       "text": "Set a reminder for 5:00 a.m. to prepare presentation with Arumugam",
       "contact": "Arumugam",
       "source": "live"
     },
     {
-      "stopToTextMs": 243.8,
-      "stopToDraftDataMs": 276.9,
+      "stopToTextMs": 242.4,
+      "stopToDraftDataMs": 273.4,
       "transcriptionRequests": 0,
       "text": "Set a reminder for 5:00 a.m. to prepare presentation with Arumugam",
       "contact": "Arumugam",
       "source": "live"
     },
     {
-      "stopToTextMs": 242.5,
-      "stopToDraftDataMs": 243,
+      "stopToTextMs": 242.7,
+      "stopToDraftDataMs": 243.5,
       "transcriptionRequests": 0,
       "text": "Set a reminder for 5:00 a.m. to prepare presentation with Arumugam",
       "contact": "Arumugam",
@@ -54,20 +54,20 @@
     }
   ],
   "medianStopToDraftDataMs": {
-    "before": 1294.1,
-    "after": 276.9
+    "before": 1294.4,
+    "after": 273.4
   },
   "fallback": {
-    "stopToTextMs": 1146.1,
-    "stopToDraftDataMs": 1146.6,
+    "stopToTextMs": 1143.9,
+    "stopToDraftDataMs": 1144.3,
     "transcriptionRequests": 1,
     "text": "Set a reminder for 5:00 a.m. to prepare presentation with R mugam",
     "contact": "R mugam",
     "source": "service"
   },
   "parserMs": {
-    "p50": 0.08795800000007148,
-    "p95": 0.25129199999992125
+    "p50": 0.08191599999918253,
+    "p95": 0.21108399999957328
   },
   "limits": "Excludes physical recording/browser speech finalization, deployed network, cold starts and live speech accuracy. Uncertain sentences become an editable draft with optional manual scheduling; no automatic server extraction."
 }

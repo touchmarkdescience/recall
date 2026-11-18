@@ -3,7 +3,7 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'reac
 import { Mic, Square } from 'lucide-react';
 import { getLocalClip, saveLocalClip } from '@/lib/localAudio';
 import { PcmCapture, isIosDevice } from '@/lib/pcmCapture';
-import { appendTranscript, blobBase64, transcriptionPayload } from '@/lib/transcription';
+import { appendSpeechTail, appendTranscript, blobBase64, transcriptionPayload } from '@/lib/transcription';
 
 const BAR_COUNT=23;
 type SpeechPreview={continuous:boolean;interimResults:boolean;lang:string;onresult:((event:{results:ArrayLike<ArrayLike<{transcript:string}>>})=>void)|null;onerror:((event:{error:string})=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void};
@@ -16,7 +16,7 @@ export default function VoiceCapture({disabled=false,ownerId,language,transcript
   const [recording,setRecording]=useState(false);
   const [working,setWorking]=useState(false);
   const [status,setStatus]=useState(transcriptionConfigured?'Tap the mic. Audio saves on this device before transcription.':'Tap the mic to save audio on this device. You can type the note below.');
-  const [seconds,setSeconds]=useState(0);const [savedRecording,setSavedRecording]=useState('');const latestPreview=useRef('');const stoppedAt=useRef(0);const speechFinalized=useRef<Promise<void>|null>(null);const resolveSpeechEnd=useRef<(()=>void)|null>(null);
+  const [seconds,setSeconds]=useState(0);const latestPreview=useRef('');const stopSnapshot=useRef<string|null>(null);const version=useRef(0);const published=useRef(-1);const request=useRef<{run:number;controller:AbortController}|null>(null);const stoppedAt=useRef(0);const speechFinalized=useRef<Promise<void>|null>(null);const resolveSpeechEnd=useRef<(()=>void)|null>(null);
   const bars=useRef<(HTMLSpanElement|null)[]>([]);
   const recorder=useRef<MediaRecorder|null>(null);
   const speech=useRef<SpeechPreview|null>(null);
@@ -31,18 +31,24 @@ export default function VoiceCapture({disabled=false,ownerId,language,transcript
   const starting=useRef(false);
   const cancelStart=useRef(false);
   const processing=useRef(false);
+  function current(run:number){return mounted.current&&version.current===run}
+  function keepLive(run:number){
+    const text=(stopSnapshot.current||latestPreview.current).trim();if(!current(run)||!text)return false;
+    if(published.current!==run){published.current=run;retryClip.current='';onTranscript(text,'live');setStatus('Live text kept. Recording saved. Review the words and details before saving.');console.info('recall_voice_timing',JSON.stringify({source:'live',stopToTextMs:Math.round(performance.now()-stoppedAt.current)}));}
+    setProcessing(false);return true;
+  }
   function actualState():VoiceState{return pcm.current?.isRecording||recorder.current?.state==='recording'?'recording':starting.current||processing.current?'processing':'idle'}
   function emitState(){const state=actualState();setRecording(state==='recording');onRecorderState(state)}
   function setProcessing(value:boolean){processing.current=value;setWorking(value);emitState()}
-  useImperativeHandle(controlRef,()=>({start,stop,toggle:async()=>{if(actualState()==='recording')await stop();else if(actualState()==='idle')await start()},leave:()=>{if(starting.current){cancelStart.current=true;pcm.current?.cancel()}else if(actualState()==='recording')void stop()},clear:()=>{if(actualState()!=='idle')return;retryClip.current='';setSavedRecording('');latestPreview.current='';setSeconds(0);setStatus(transcriptionConfigured?'Tap the mic. Audio saves on this device before transcription.':'Tap the mic to save audio on this device. You can type the note below.')},state:actualState}));
+  useImperativeHandle(controlRef,()=>({start,stop,toggle:async()=>{if(actualState()==='recording')await stop();else if(actualState()==='idle')await start()},leave:()=>{if(starting.current){cancelStart.current=true;pcm.current?.cancel()}else if(actualState()==='recording')void stop()},clear:()=>{if(actualState()!=='idle')return;version.current++;request.current?.controller.abort();request.current=null;stopSnapshot.current=null;published.current=-1;retryClip.current='';latestPreview.current='';setSeconds(0);setStatus(transcriptionConfigured?'Tap the mic. Audio saves on this device before transcription.':'Tap the mic to save audio on this device. You can type the note below.')},state:actualState}));
   useEffect(()=>{languageRef.current=language},[language]);
   useEffect(()=>{
     mounted.current=true;
     const retryOnline=()=>{if(retryClip.current&&actualState()==='idle')void transcribe(retryClip.current)};
     window.addEventListener('online',retryOnline);
-    return()=>{mounted.current=false;window.removeEventListener('online',retryOnline);speech.current?.stop();stopMeter();pcm.current?.cancel();if(recorder.current?.state==='recording')recorder.current.stop();stream.current?.getTracks().forEach(track=>track.stop())};
+    return()=>{mounted.current=false;version.current++;request.current?.controller.abort();request.current=null;window.removeEventListener('online',retryOnline);speech.current?.stop();stopMeter();pcm.current?.cancel();if(recorder.current?.state==='recording')recorder.current.stop();stream.current?.getTracks().forEach(track=>track.stop());recorder.current=null;pcm.current=null;stream.current=null;starting.current=false;processing.current=false;latestPreview.current='';stopSnapshot.current=null;};
   },[ownerId]);
-  function startSpeechPreview(){
+  function startSpeechPreview(run:number){
     const browser=window as SpeechWindow;
     const Recognition=browser.SpeechRecognition||browser.webkitSpeechRecognition;
     if(!Recognition){setStatus(`Recording. Live text is unavailable here; ${provider} transcribes automatically when you stop.`);return}
@@ -50,11 +56,11 @@ export default function VoiceCapture({disabled=false,ownerId,language,transcript
       speechFinalized.current=new Promise<void>(resolve=>{resolveSpeechEnd.current=resolve});
       const preview=new Recognition();preview.continuous=true;preview.interimResults=true;preview.lang=languageRef.current==='ta'?'ta-IN':'en-IN';
       let completed='',sessionText='',restart=true;
-      preview.onresult=event=>{if(actualState()==='idle')return;sessionText=Array.from(event.results).map(result=>result[0]?.transcript||'').join(' ').trim();const text=appendTranscript(completed,sessionText);if(text){latestPreview.current=text;onLiveTranscript(text)}};
-      preview.onend=()=>{if(!restart||actualState()!=='recording'){resolveSpeechEnd.current?.();return}completed=appendTranscript(completed,sessionText);sessionText='';try{preview.start()}catch{restart=false;resolveSpeechEnd.current?.()}};
-      preview.onerror=()=>{restart=false;resolveSpeechEnd.current?.();speech.current=null;if(actualState()==='recording')setStatus(`Recording continues. Review live text when you stop, or transcribe the saved audio.`)};
+      preview.onresult=event=>{if(!current(run)||published.current===run||actualState()==='idle')return;sessionText=Array.from(event.results).map(result=>result[0]?.transcript||'').join(' ').trim();let text=appendTranscript(completed,sessionText);if(stopSnapshot.current){text=appendSpeechTail(stopSnapshot.current,text);if(text===stopSnapshot.current)return;stopSnapshot.current=text;}if(text){latestPreview.current=text;onLiveTranscript(text);if(stopSnapshot.current!==null){stopSnapshot.current=text;if(request.current?.run===run){request.current.controller.abort();keepLive(run);}}}};
+      preview.onend=()=>{if(!current(run)||stopSnapshot.current!==null||!restart||actualState()!=='recording'){resolveSpeechEnd.current?.();return}completed=appendTranscript(completed,sessionText);sessionText='';try{preview.start()}catch{restart=false;resolveSpeechEnd.current?.()}};
+      preview.onerror=()=>{if(!current(run))return;restart=false;resolveSpeechEnd.current?.();speech.current=null;if(actualState()==='recording')setStatus(`Recording continues. Review live text when you stop. Your saved audio is used if live text is unavailable.`)};
       speech.current=preview;preview.start();
-    }catch{speech.current=null;setStatus(`Recording continues. Review live text when you stop, or transcribe the saved audio.`)}
+    }catch{speech.current=null;setStatus(`Recording continues. Review live text when you stop. Your saved audio is used if live text is unavailable.`)}
   }
 
   function stopMeter(){
@@ -75,91 +81,100 @@ export default function VoiceCapture({disabled=false,ownerId,language,transcript
       if(bars.current[i])bars.current[i]!.style.height=`${Math.round(5+43*amplitude*motion)}px`;
     }
   }
-  async function transcribe(id:string,automatic=false){
+  async function transcribe(id:string,automatic=false,run=version.current){
     const requestedAt=performance.now();
+    if(!current(run)||keepLive(run))return;
     if(!transcriptionConfigured){setStatus('Audio saved on this device. Type the note below, or configure transcription.');setProcessing(false);return}
+    const controller=new AbortController();request.current={run,controller};
     setProcessing(true);setStatus('Transcribing your saved recording…');
     try{
       const clip=await getLocalClip(id);
+      if(!current(run)||keepLive(run))return;
       if(!clip||clip.ownerId!==ownerId)throw new Error('The local recording could not be found.');
       if(clip.blob.size>2_000_000)throw new Error('The recording is too large for transcription. Please record a shorter note.');
       const body=transcriptionPayload(await blobBase64(clip.blob),clip.blob.type);
       let final='';
       for(let attempt=0;attempt<2;attempt++){
+        if(!current(run)||keepLive(run))return;
         try{
-          const response=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          const response=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:controller.signal});
           const result=await response.json();
+          if(!current(run)||keepLive(run))return;
           if(!response.ok){const failure=new Error(result.error||'Transcription failed') as Error & {retryable?:boolean};failure.retryable=response.status===429||response.status>=500;throw failure}
           final=String(result.transcript||'').trim();
           if(!final)throw new Error('No speech was heard. Please try again or type the note.');
           break;
-        }catch(error){if(attempt===1||(error instanceof Error&&(error as Error & {retryable?:boolean}).retryable===false)||error instanceof SyntaxError||error instanceof Error&&/No speech was heard/.test(error.message))throw error;setStatus('Transcription interrupted. Retrying saved audio…');await new Promise(resolve=>setTimeout(resolve,700))}
+        }catch(error){
+          if(!current(run)||keepLive(run))return;
+          if(controller.signal.aborted||attempt===1||(error instanceof Error&&(error as Error & {retryable?:boolean}).retryable===false)||error instanceof SyntaxError||error instanceof Error&&/No speech was heard/.test(error.message))throw error;
+          setStatus('Transcription interrupted. Retrying saved audio…');await new Promise(resolve=>setTimeout(resolve,700));
+        }
       }
-      retryClip.current='';
-      if(mounted.current)onTranscript(final,'service');
-      console.info('recall_voice_timing',{source:automatic?'service-fallback':'service-request',requestToTextMs:Math.round(performance.now()-requestedAt),...(automatic?{stopToTextMs:Math.round(performance.now()-stoppedAt.current)}:{})});
+      if(!current(run)||keepLive(run)||published.current===run)return;
+      retryClip.current='';published.current=run;onTranscript(final,'service');
+      console.info('recall_voice_timing',JSON.stringify({source:automatic?'service-fallback':'service-retry',requestToTextMs:Math.round(performance.now()-requestedAt),...(automatic?{stopToTextMs:Math.round(performance.now()-stoppedAt.current)}:{})}));
       setStatus(`Transcript ready via ${provider}. Review and correct the text before saving.`);
-    }catch(error){retryClip.current=id;if(mounted.current)onError(error instanceof Error?error.message:String(error));setStatus('Audio is saved on this device. Recall will retry when you reconnect; you can also edit the text below.');}
-    finally{setProcessing(false)}
+    }catch(error){
+      if(current(run)&&!keepLive(run)){retryClip.current=id;onError(error instanceof Error?error.message:String(error));setStatus('Audio is saved on this device. Recall will retry when you reconnect; you can also edit the text below.');}
+    }finally{
+      if(request.current?.controller===controller)request.current=null;
+      if(current(run))setProcessing(false);
+    }
   }
-  async function saveAndTranscribe(blob:Blob){
+  async function saveAndTranscribe(blob:Blob,run:number){
+    if(!current(run))return;
     setProcessing(true);setStatus('Saving the recording on this device…');
     try{
       if(!blob.size)throw new Error('No audio was captured. Please try again.');
       const id=crypto.randomUUID();
       await saveLocalClip({id,ownerId,blob,recordedAt:new Date().toISOString(),language:languageRef.current});
-      if(!mounted.current)return;
-      setSavedRecording(id);
+      if(!current(run))return;
       if(speechFinalized.current)await Promise.race([speechFinalized.current,new Promise(resolve=>setTimeout(resolve,200))]);
-      if(!mounted.current)return;
-      if(latestPreview.current.trim()){
-        onTranscript(latestPreview.current.trim(),'live');setProcessing(false);
-        console.info('recall_voice_timing',{source:'live',stopToTextMs:Math.round(performance.now()-stoppedAt.current)});
-        setStatus('Live text ready. Recording saved. Review details, or request another transcription if needed.');
-      }else{setStatus('Saved on this device.');await transcribe(id,true);}
-    }catch(error){if(mounted.current){onError(error instanceof Error?error.message:String(error));setStatus('Recording could not be saved. Please try again.');setProcessing(false)}}
+      if(!current(run)||keepLive(run))return;
+      setStatus('Saved on this device.');await transcribe(id,true,run);
+    }catch(error){if(current(run)){onError(error instanceof Error?error.message:String(error));setStatus('Recording could not be saved. Please try again.');setProcessing(false)}}
   }
   async function start(){
     if(disabled||actualState()!=='idle')return;
-    latestPreview.current='';speechFinalized.current=null;setSavedRecording('');starting.current=true;cancelStart.current=false;setWorking(true);emitState();onLiveTranscript('');
+    const run=++version.current;published.current=-1;stopSnapshot.current=null;request.current?.controller.abort();request.current=null;retryClip.current='';latestPreview.current='';speechFinalized.current=null;starting.current=true;cancelStart.current=false;setWorking(true);emitState();onLiveTranscript('');
     const ios=isIosDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
     if(!navigator.mediaDevices?.getUserMedia||(!ios&&typeof MediaRecorder==='undefined')){starting.current=false;setWorking(false);emitState();onError('Audio recording is unavailable in this browser.');return}
     try{
       if(ios){
-        const capture=new PcmCapture({onError:message=>{onError(message);starting.current=false;setProcessing(false);stopMeter()},onLevel:paintPcmLevel,onLimit:()=>{void stop()}});
+        const capture=new PcmCapture({onError:message=>{if(!current(run))return;onError(message);starting.current=false;setProcessing(false);stopMeter()},onLevel:paintPcmLevel,onLimit:()=>{void stop()}});
         pcm.current=capture;
-        if(!await capture.start()){starting.current=false;pcm.current=null;setWorking(false);emitState();return}
-        starting.current=false;setWorking(false);emitState();onRecordingStart();setStatus('Recording now. Tap the stop square when finished.');startClock();startSpeechPreview();return;
+        if(!await capture.start()){if(!current(run))return;starting.current=false;pcm.current=null;setWorking(false);emitState();return}
+        if(!current(run)){capture.cancel();return}starting.current=false;setWorking(false);emitState();onRecordingStart();setStatus('Recording now. Tap the stop square when finished.');startClock();startSpeechPreview(run);return;
       }
       const media=await navigator.mediaDevices.getUserMedia({audio:{channelCount:{ideal:1},echoCancellation:true,noiseSuppression:true}});
-      if(cancelStart.current){media.getTracks().forEach(track=>track.stop());starting.current=false;setWorking(false);emitState();return}
+      if(!current(run)){media.getTracks().forEach(track=>track.stop());return}if(cancelStart.current){media.getTracks().forEach(track=>track.stop());starting.current=false;setWorking(false);emitState();return}
       stream.current=media;
       const chunks:Blob[]=[];
       const mime=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(type=>MediaRecorder.isTypeSupported(type))||'';
       const nextRecorder=new MediaRecorder(media,{...(mime?{mimeType:mime}:{}),audioBitsPerSecond:64000});
       recorder.current=nextRecorder;
-      nextRecorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);if(chunks.reduce((total,part)=>total+part.size,0)>1_850_000&&nextRecorder.state==='recording')void stop()};
-      nextRecorder.onstop=async()=>{stopMeter();media.getTracks().forEach(track=>track.stop());recorder.current=null;emitState();const blob=new Blob(chunks,{type:nextRecorder.mimeType||'audio/webm'});await saveAndTranscribe(blob)};
-      nextRecorder.onerror=()=>{stopMeter();media.getTracks().forEach(track=>track.stop());recorder.current=null;onError('Could not record audio. Please retry or type the note.');starting.current=false;setProcessing(false)};
+      nextRecorder.ondataavailable=event=>{if(!current(run))return;if(event.data.size)chunks.push(event.data);if(chunks.reduce((total,part)=>total+part.size,0)>1_850_000&&nextRecorder.state==='recording')void stop()};
+      nextRecorder.onstop=async()=>{media.getTracks().forEach(track=>track.stop());if(!current(run))return;stopMeter();if(recorder.current===nextRecorder)recorder.current=null;emitState();const blob=new Blob(chunks,{type:nextRecorder.mimeType||'audio/webm'});await saveAndTranscribe(blob,run)};
+      nextRecorder.onerror=()=>{if(!current(run))return;stopMeter();media.getTracks().forEach(track=>track.stop());recorder.current=null;onError('Could not record audio. Please retry or type the note.');starting.current=false;setProcessing(false)};
       const audioContext=new AudioContext();context.current=audioContext;
       const source=audioContext.createMediaStreamSource(media);
       const analyser=audioContext.createAnalyser();analyser.fftSize=512;analyser.smoothingTimeConstant=.66;source.connect(analyser);
       const values=new Uint8Array(analyser.frequencyBinCount);
       const animate=()=>{analyser.getByteFrequencyData(values);for(let i=0;i<BAR_COUNT;i++){const low=Math.floor(i*values.length/BAR_COUNT);const high=Math.max(low+1,Math.floor((i+1)*values.length/BAR_COUNT));let sum=0;for(let n=low;n<high;n++)sum+=values[n];const level=sum/(high-low)/255;const height=Math.max(5,Math.min(48,5+Math.pow(level,1.15)*95));if(bars.current[i])bars.current[i]!.style.height=`${height}px`}frame.current=requestAnimationFrame(animate)};
-      nextRecorder.start(1000);starting.current=false;setWorking(false);emitState();onRecordingStart();setStatus('Recording now. Tap the stop square when finished.');startClock();startSpeechPreview();animate();
-    }catch(error){pcm.current?.cancel();pcm.current=null;stream.current?.getTracks().forEach(track=>track.stop());stopMeter();starting.current=false;setProcessing(false);onError(error instanceof Error&&error.name==='NotAllowedError'?'Microphone permission was denied. Allow microphone access in your browser settings and try again.':error instanceof Error?error.message:String(error));setStatus('Microphone access was not available.')}
+      nextRecorder.start(1000);starting.current=false;setWorking(false);emitState();onRecordingStart();setStatus('Recording now. Tap the stop square when finished.');startClock();startSpeechPreview(run);animate();
+    }catch(error){if(!current(run))return;pcm.current?.cancel();pcm.current=null;stream.current?.getTracks().forEach(track=>track.stop());stopMeter();starting.current=false;setProcessing(false);onError(error instanceof Error&&error.name==='NotAllowedError'?'Microphone permission was denied. Allow microphone access in your browser settings and try again.':error instanceof Error?error.message:String(error));setStatus('Microphone access was not available.')}
   }
   async function stop(){
     if(actualState()!=='recording')return;
-    stoppedAt.current=performance.now();speech.current?.stop();speech.current=null;
-    if(pcm.current){const capture=pcm.current;pcm.current=null;setProcessing(true);setStatus('Finishing recording…');stopMeter();const blob=await capture.stop();if(blob)await saveAndTranscribe(blob);else{onError('No speech was heard. Please try again or type the note.');setProcessing(false)}return}
+    const run=version.current;stopSnapshot.current=latestPreview.current.trim();stoppedAt.current=performance.now();speech.current?.stop();speech.current=null;
+    if(pcm.current){const capture=pcm.current;pcm.current=null;setProcessing(true);setStatus('Finishing recording…');stopMeter();const blob=await capture.stop();if(blob)await saveAndTranscribe(blob,run);else if(current(run)){onError('No speech was heard. Please try again or type the note.');setProcessing(false)}return}
     if(recorder.current?.state==='recording'){recorder.current.stop();setStatus('Finishing recording…');stopMeter();setProcessing(true)}
   }
   return <div className={`capture-card voice-capture ${recording?'is-recording':''}`}>
     <button className={`mic-button ${recording?'recording':''}`} onClick={recording?stop:start} disabled={working||disabled} aria-label={recording?'Stop recording':'Start recording'}>{recording?<Square size={27} fill="currentColor"/>:<Mic size={31}/>}</button>
-    <strong>{recording?`Recording · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} / 1:00`:working?'Processing your recording…':'Record a voice note · 0:00 / 1:00'}</strong>
+    <strong>{recording?`Recording · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} / 1:00`:working?'Processing your recording…':`Record a voice note · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} / 1:00`}</strong>
     <span role="status">{status}</span>
     <div className="live-wave" aria-label={recording?'Live microphone level':'Microphone is idle'}>{Array.from({length:BAR_COUNT},(_,i)=><span key={i} ref={element=>{bars.current[i]=element}}/>)}</div>
-    {transcriptionConfigured&&<small className="voice-provider">Live words are kept · {provider} is available for recorded audio</small>}{savedRecording&&transcriptionConfigured&&<button className="secondary" disabled={working||recording||disabled} onClick={()=>void transcribe(savedRecording)}>Transcribe saved audio with {provider}</button>}
+    {transcriptionConfigured&&<small className="voice-provider">Live words are kept · {provider} is available for recorded audio</small>}
   </div>;
 }

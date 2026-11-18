@@ -12,6 +12,7 @@
     "test:security": "node --experimental-strip-types scripts/test-security.mjs",
     "test:writes": "node --experimental-strip-types scripts/test-write-performance.mjs",
     "test:voice": "node --experimental-strip-types scripts/test-voice-settings.mjs",
+    "test:voice-stop": "node --experimental-strip-types scripts/test-voice-stop.mjs",
     "test:daily-summary": "node --experimental-strip-types scripts/test-daily-summary.mjs",
     "benchmark:voice": "node --experimental-strip-types scripts/benchmark-voice-review.mjs"
   },

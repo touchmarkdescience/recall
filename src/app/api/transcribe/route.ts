@@ -2,8 +2,7 @@ import { protectRequest, protectUserBudget, readJsonLimited, securityResponse } 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { currentUser } from '@/lib/auth';
-import { rows } from '@/lib/db';
-import { cloud, dataOrThrow, cloudConfigured } from '@/lib/cloud';
+import { cloudConfigured } from '@/lib/cloud';
 import { getCloudTranscriptionProvider } from '@/lib/cloudSettings';
 import { getSettings } from '@/lib/settings';
 import { sttConfigured, sttLabel, transcribeAudio } from '@/lib/stt';
@@ -29,14 +28,12 @@ export async function POST(req:NextRequest){
     const parsed=payload.safeParse(raw);
     if(!parsed.success)return NextResponse.json({error:'Record a shorter audio clip in a supported format.'},{status:400});
     await protectUserBudget(user.id,'transcribe');
-    const contacts=cloudConfigured()?dataOrThrow(await cloud().from('recall_contacts').select('name').eq('user_id',user.id).order('name').limit(50)):rows<{name:string}>('SELECT name FROM contacts WHERE user_id=? ORDER BY name LIMIT 50',user.id);
-    const vocabulary=(contacts as {name:string}[]).map(contact=>contact.name);
     const prepared=performance.now();
-    const transcript=await transcribeAudio({bytes:Buffer.from(parsed.data.audio,'base64'),mime:parsed.data.mime},provider,{language:parsed.data.language??'auto',vocabulary});
+    const transcript=await transcribeAudio({bytes:Buffer.from(parsed.data.audio,'base64'),mime:parsed.data.mime},provider,{language:parsed.data.language??'auto'});
     const finished=performance.now(),result=NextResponse.json({transcript});
     result.headers.set('Cache-Control','no-store');
     result.headers.set('Server-Timing',`prepare;dur=${Math.round(prepared-started)}, provider;dur=${Math.round(finished-prepared)}, total;dur=${Math.round(finished-started)}`);
-    console.info('recall_transcribe_timing',{provider,prepareMs:Math.round(prepared-started),providerMs:Math.round(finished-prepared),totalMs:Math.round(finished-started)});
+    console.info('recall_transcribe_timing',JSON.stringify({provider,prepareMs:Math.round(prepared-started),providerMs:Math.round(finished-prepared),totalMs:Math.round(finished-started)}));
     return result;
   }catch(error){
     const blocked=securityResponse(error);if(blocked)return blocked;

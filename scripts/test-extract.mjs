@@ -186,5 +186,21 @@ const friday=fastExtract('Follow up with Richard next Friday about the property'
 assert.equal(friday.contactName,'Richard');assert.equal(friday.actions[0].timeSpecified,false);
 const meeting=fastExtract('Meet Richard next Friday at 11:00 AM',evening);assert.equal(meeting.contactName,'Richard');assert.equal(meeting.actions[0].timeSpecified,true);
 const tamilWords='நாளைக்கு மோகன்கிட்ட இந்த ப்ராப்பர்ட்டி சம்பந்தமா பேசணும்';
-const manual=createReviewDraft(tamilWords,evening);assert.equal(manual.summary,tamilWords);assert.equal(manual.actions[0].title,tamilWords);assert.equal(manual.actions[0].dueAt,null);assert.equal(manual.actions[0].timeSpecified,false);assert.equal(manual.needsManualReview,true);
+const manual=createReviewDraft(tamilWords,evening);assert.equal(manual.summary,tamilWords);assert.equal(manual.actions[0].title,tamilWords);assert.equal(manual.actions[0].dueAt,'2026-11-19T03:30:00.000Z');assert.equal(manual.actions[0].timeSpecified,false);assert.equal(manual.contactName,'மோகன்');
 console.log('Literal name, next-occurrence clock, date-only task and Tamil manual-draft checks passed');
+
+const mobileMeeting=createReviewDraft('Tomorrow I have meeting with Karthikeyan sir, set me a call at 2:00 PM.',evening);
+assert.equal(mobileMeeting.contactName,'Karthikeyan');assert.equal(mobileMeeting.actions[0].kind,'meeting');assert.equal(mobileMeeting.actions[0].dueAt,'2026-11-19T08:30:00.000Z');assert.equal(mobileMeeting.actions[0].timeSpecified,true);
+const tamilMeeting=createReviewDraft('நாளைக்கு 3 மணிக்கு ஆரியப்பன் கூட ஒரு மீட்டிங் இருக்கு ஸ்கெடியூல் பண்ண',evening);
+assert.equal(tamilMeeting.contactName,'ஆரியப்பன்');assert.equal(tamilMeeting.actions[0].kind,'meeting');assert.equal(tamilMeeting.actions[0].timeAmbiguity,'period');assert.equal(tamilMeeting.actions[0].dueAt,null);assert.deepEqual(tamilMeeting.actions[0].timeChoices,['2026-11-18T21:30:00.000Z','2026-11-19T09:30:00.000Z']);
+for(const text of ['நாளைக்கு மதியம் 3 மணிக்கு ஆரியப்பன் கூட மீட்டிங்','நாளைக்கு மதியம் மூன்று மணிக்கு ஆரியப்பன் கூட ஒரு மீட்டிங் இருக்கு','நாளைக்கு 3 PM ஆரியப்பன் கூட meeting']){const r=createReviewDraft(text,evening);assert.equal(r.actions[0].kind,'meeting');assert.equal(r.actions[0].dueAt,'2026-11-19T09:30:00.000Z');assert.equal(r.actions[0].timeSpecified,true)}
+const noClock=createReviewDraft('Tomorrow meeting with Aria Pan',evening);assert.equal(noClock.actions[0].kind,'meeting');assert.equal(noClock.actions[0].timeSpecified,false);assert.equal(noClock.actions[0].dueAt,'2026-11-19T03:30:00.000Z');
+const unknown=createReviewDraft('இந்த விவரத்தை நினைவில் வைத்துக்கொள்ள வேண்டும்',evening);assert.equal(unknown.needsManualReview,true);assert.equal(unknown.actions[0].dueAt,null);
+const spelling=createReviewDraft('Set a reminder for 5:00 AM to prepare presentation with Aarmugam.',evening);assert.equal(spelling.contactName,'Aarmugam');assert.equal(spelling.summary,'Set a reminder for 5:00 AM to prepare presentation with Aarmugam.');
+console.log('Phone-reported English/Tamil meetings, AM/PM choices, number words and literal-name checks passed');
+
+const eleven=createReviewDraft('நாளைக்கு காலை பதினொன்று மணிக்கு ஆரியப்பன் கூட மீட்டிங்',evening);assert.equal(eleven.actions[0].dueAt,'2026-11-19T05:30:00.000Z');
+const complexTamil=createReviewDraft('நாளைக்கு 3 மணிக்கு ஆரியப்பன் கூட மீட்டிங் எனக்கு 5 PM ரிமைண்டர்',evening);assert.equal(complexTamil.needsManualReview,true);
+
+const englishBare=createReviewDraft('Tomorrow I have a meeting with Karthikeyan at 3',evening);assert.equal(englishBare.actions[0].timeAmbiguity,'period');assert(englishBare.actions[0].timeChoices.includes('2026-11-19T09:30:00.000Z'));
+const englishAfternoon=createReviewDraft('Tomorrow I have a meeting with Karthikeyan at 3 in the afternoon',evening);assert.equal(englishAfternoon.actions[0].dueAt,'2026-11-19T09:30:00.000Z');
