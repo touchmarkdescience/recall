@@ -5,6 +5,7 @@ This is an evidence-based draft, not a completed Play Console declaration. Servi
 | Data/practice | Current implementation | Submission consideration |
 |---|---|---|
 | Name, email, account identifier | Signup/login, server database, device session | Personal info / user IDs, account management and app functionality. Required account email; name supplied at signup. |
+| Native signup security | Google reCAPTCHA mobile SDK and server assessments | Review device/other identifiers, app interactions, installed-app information and network/integrity signals for fraud prevention/security. Account creation invokes the SDK; name/email/password are not sent in Recall's assessment request. See Google's SDK disclosure below. |
 | Password | Sent over HTTPS; server salted scrypt hash; not stored as plaintext | Authentication data; never declare credentials public or shared for advertising. |
 | Task/conversation text, manually entered people/phone numbers | Supabase records via account-owned API; optional server extraction | User-generated content and any personal data contained within it. Contact-book permission is NOT used; that does not mean user-entered contact information is never collected. |
 | Audio in native Android | Phone speech recognition; native app sends text, not audio files, to Recall | The speech service may process audio remotely. Verify the recognizer/provider disclosures; do not claim all audio stays on-device. |
@@ -35,3 +36,7 @@ This is an evidence-based draft, not a completed Play Console declaration. Servi
 3. Verify the live deletion flow with disposable records before asserting deletion availability.
 4. Provide support coverage for deletion/access requests from users who cannot log in. Never ask them to send passwords.
 5. Recheck this worksheet whenever adding analytics, admin activity tracking, server transcription in native, billing or new SDKs.
+
+## Native reCAPTCHA update
+
+Before publishing the native-signup update, review the Play Data safety answers against [Google's reCAPTCHA SDK disclosure](https://docs.cloud.google.com/recaptcha/docs/disclosure-requirements-android). Google documents network-address collection, app/SDK metadata, action and interaction signals, integrity results, information about certain installed apps, and device-related identifiers. This is a security use, not advertising. The prior worksheet alone is insufficient for the newly added SDK. Owner must confirm the applicable categories, collection/sharing classification and retention with Google's terms and the actual enabled SDK.

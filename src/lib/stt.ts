@@ -4,7 +4,11 @@ import { z } from 'zod';
 import { TRANSCRIPTION_PROMPT, transcribeWithFallback } from './transcription';
 
 export type SttProvider='groq'|'gemini';
-export const defaultSttProvider=():SttProvider=>process.env.STT_PROVIDER==='gemini'?'gemini':'groq';
+export const defaultSttProvider=():SttProvider=>{
+  if(process.env.STT_PROVIDER==='groq')return 'groq';
+  if(process.env.STT_PROVIDER==='gemini')return 'gemini';
+  return process.env.GEMINI_API_KEY?'gemini':'groq';
+};
 export const sttProvider=(value:unknown):SttProvider=>value==='gemini'||value==='groq'?value:defaultSttProvider();
 export const sttConfigured=(provider:SttProvider)=>Boolean(provider==='groq'?process.env.GROQ_API_KEY:process.env.GEMINI_API_KEY);
 export const sttLabel=(provider:SttProvider)=>provider==='groq'?'Groq Whisper':'Google Gemini';

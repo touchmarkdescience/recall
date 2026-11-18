@@ -1,8 +1,19 @@
+import 'dart:async';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 import 'recall_api.dart';
+import 'notification_actions.dart';
+
+@pragma('vm:entry-point')
+void reminderNotificationBackground(NotificationResponse response) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final scheduler = LocalReminders();
+  await scheduler.initialize();
+  await scheduler.handleNotificationResponse(response);
+}
 
 class PlannedReminder {
   final RecallAction action;
@@ -38,29 +49,55 @@ List<PlannedReminder> planReminders(List<RecallAction> actions, DateTime now) {
 
 class LocalReminders extends ChangeNotifier {
   static const testId = 2000000000;
+  static const actionCategory = 'recall_followup_actions';
   final FlutterLocalNotificationsPlugin plugin;
   bool ready = false, enabled = false, exact = false, channelBlocked = false;
   int scheduledCount = 0, untimedCount = 0, fallbackCount = 0;
   String? error;
   DateTime? nextAt, testAt;
   String? activeAccount;
+  Future<void> Function()? onNotificationAction;
+  final NotificationActionStore actionStore;
   Future<void> _queue = Future.value();
-  LocalReminders({FlutterLocalNotificationsPlugin? plugin})
-    : plugin = plugin ?? FlutterLocalNotificationsPlugin();
+  LocalReminders({
+    FlutterLocalNotificationsPlugin? plugin,
+    this.actionStore = const NotificationActionStore(),
+  }) : plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   Future<void> initialize() async {
     tz_data.initializeTimeZones();
     if (kIsWeb) return;
     try {
       await plugin.initialize(
-        settings: const InitializationSettings(
-          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        settings: InitializationSettings(
+          android: const AndroidInitializationSettings('@mipmap/ic_launcher'),
           iOS: DarwinInitializationSettings(
             requestAlertPermission: false,
             requestBadgePermission: false,
             requestSoundPermission: false,
+            notificationCategories: [
+              DarwinNotificationCategory(
+                actionCategory,
+                actions: [
+                  DarwinNotificationAction.plain(
+                    completeNotificationAction,
+                    'Mark completed',
+                  ),
+                  DarwinNotificationAction.plain(
+                    snoozeNotificationAction,
+                    'Remind in 5 minutes',
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
+        onDidReceiveBackgroundNotificationResponse:
+            reminderNotificationBackground,
+        onDidReceiveNotificationResponse: (response) async {
+          await handleNotificationResponse(response);
+          await onNotificationAction?.call();
+        },
       );
       ready = true;
       await refreshStatus();
@@ -154,6 +191,120 @@ class LocalReminders extends ChangeNotifier {
       presentBadge: true,
     ),
   );
+  static const actionDetails = NotificationDetails(
+    android: AndroidNotificationDetails(
+      'recall_followups',
+      'Recall follow-ups',
+      channelDescription: 'Meetings, reminders and follow-ups',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      actions: [
+        AndroidNotificationAction(completeNotificationAction, 'Mark completed'),
+        AndroidNotificationAction(
+          snoozeNotificationAction,
+          'Remind in 5 minutes',
+        ),
+      ],
+    ),
+    iOS: DarwinNotificationDetails(
+      categoryIdentifier: actionCategory,
+      presentAlert: true,
+      presentSound: true,
+      presentBadge: true,
+    ),
+  );
+
+  Future<void> _schedule(ReminderPayload payload, DateTime at) async {
+    await plugin.zonedSchedule(
+      id: _id(payload.account, payload.id),
+      title: titleFor(payload.kind),
+      body: payload.body,
+      scheduledDate: tz.TZDateTime.from(at, tz.getLocation('Asia/Kolkata')),
+      notificationDetails: actionDetails,
+      androidScheduleMode: exact
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle,
+      payload: payload.encode(),
+    );
+  }
+
+  Future<void> handleNotificationResponse(
+    NotificationResponse response, {
+    RecallApi? client,
+  }) async {
+    if (response.actionId != completeNotificationAction &&
+        response.actionId != snoozeNotificationAction) {
+      return;
+    }
+    final payload = ReminderPayload.parse(response.payload);
+    if (payload == null) return;
+    var completionSaved = false;
+    try {
+      final account = await actionStore.storage.read(
+        key: NotificationActionStore.accountKey,
+      );
+      if (account != payload.account) return;
+      final previous = await actionStore.read(account!, payload.id);
+      if (response.actionId == completeNotificationAction) {
+        await actionStore.write(payload, {'done': true});
+        completionSaved = true;
+        await plugin.cancel(id: _id(account, payload.id));
+        // Background callbacks have no Activity. No navigation or permission
+        // prompts are needed, and the intent is persisted before networking.
+        // iOS may withhold the login keychain item while locked. The completion
+        // is already saved and will sync on the next authenticated app load.
+        final token = await actionStore.storage.read(key: 'session');
+        if (token == null) return;
+        final api = client ?? RecallApi(token);
+        final me = await api.get('me');
+        if ('${(me['user'] as Map?)?['id']}' == account) {
+          await actionStore.flush(account, api);
+        }
+      } else {
+        if (previous['done'] == true) return;
+        final at = DateTime.now().add(const Duration(minutes: 5));
+        await actionStore.write(payload, {
+          'snoozeAt': at.toUtc().toIso8601String(),
+        });
+        await _schedule(payload, at);
+      }
+    } catch (_) {
+      // A completion is already durable before any network call. Scheduling
+      // failures are surfaced rather than pretending another alert is queued.
+      if (!completionSaved) {
+        error = 'Could not update this alert. Open Recall to retry.';
+        await plugin.show(
+          id: _id(payload.account, payload.id),
+          title: 'Reminder needs attention',
+          body: error!,
+          notificationDetails: details,
+          payload: payload.encode(),
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> reconcileNotificationActions(
+    String account,
+    List<RecallAction> actions,
+    RecallApi api, {
+    bool serverSnapshot = true,
+  }) async {
+    await actionStore.flush(account, api);
+    for (final entry in (await actionStore.records(account)).entries) {
+      for (final action in actions.where((a) => a.id == entry.key)) {
+        if (entry.value['done'] == true) {
+          if (serverSnapshot && action.status != 'pending') {
+            await actionStore.remove(account, action.id);
+          } else {
+            action.status = 'done';
+          }
+        }
+      }
+    }
+  }
 
   Future<void> sync(String userId, List<RecallAction> actions) {
     if (!ready) return Future.value();
@@ -174,6 +325,10 @@ class LocalReminders extends ChangeNotifier {
         await plugin.cancelAll();
       }
       activeAccount = userId;
+      await actionStore.storage.write(
+        key: NotificationActionStore.accountKey,
+        value: userId,
+      );
       await refreshStatus();
       untimedCount = actions
           .where(
@@ -182,29 +337,59 @@ class LocalReminders extends ChangeNotifier {
           )
           .length;
       final wanted = <int>{};
-      final plans = planReminders(actions, DateTime.now());
+      final states = await actionStore.records(userId);
+      final now = DateTime.now();
+      final eligible = actions
+          .where((a) => states[a.id]?['done'] != true)
+          .toList();
+      final snoozed = <String, DateTime>{};
+      for (final action in eligible) {
+        final saved = states[action.id];
+        final previous = ReminderPayload.parse(saved?['payload'] as String?);
+        if (saved?['snoozeAt'] != null &&
+            previous?.dueAt != action.dueAt?.toUtc().toIso8601String()) {
+          // An explicit reschedule in Recall supersedes a local snooze.
+          await actionStore.remove(userId, action.id);
+          states.remove(action.id);
+        }
+        final at = DateTime.tryParse('${states[action.id]?['snoozeAt'] ?? ''}');
+        if (at != null && at.isAfter(now) && action.status == 'pending') {
+          snoozed[action.id] = at;
+        }
+      }
+      final plans = [
+        ...planReminders(
+          eligible
+              .where(
+                (a) =>
+                    !snoozed.containsKey(a.id) &&
+                    states[a.id]?['snoozeAt'] == null,
+              )
+              .toList(),
+          now,
+        ),
+        for (final action in eligible.where((a) => snoozed.containsKey(a.id)))
+          PlannedReminder(action, snoozed[action.id]!, false),
+      ]..sort((a, b) => a.at.compareTo(b.at));
       fallbackCount = plans.where((p) => p.leadTimePassed).length;
       nextAt = null;
       if (enabled && !channelBlocked) {
         var failures = 0;
-        for (final plan in plans) {
+        for (final plan in plans.take(50)) {
           final id = _id(userId, plan.action.id);
           try {
-            await plugin.zonedSchedule(
-              id: id,
-              title: titleFor(plan.action.kind),
-              body: plan.action.contactName.isEmpty
-                  ? plan.action.title
-                  : '${plan.action.contactName}: ${plan.action.title}',
-              scheduledDate: tz.TZDateTime.from(
-                plan.at,
-                tz.getLocation('Asia/Kolkata'),
+            await _schedule(
+              ReminderPayload(
+                userId,
+                plan.action.id,
+                plan.action.title,
+                plan.action.contactName.isEmpty
+                    ? plan.action.title
+                    : '${plan.action.contactName}: ${plan.action.title}',
+                plan.action.kind,
+                dueAt: plan.action.dueAt?.toUtc().toIso8601String(),
               ),
-              notificationDetails: details,
-              androidScheduleMode: exact
-                  ? AndroidScheduleMode.exactAllowWhileIdle
-                  : AndroidScheduleMode.inexactAllowWhileIdle,
-              payload: plan.action.id,
+              plan.at,
             );
             wanted.add(id);
             nextAt ??= plan.at;
@@ -225,6 +410,10 @@ class LocalReminders extends ChangeNotifier {
         }
       }
       scheduledCount = wanted.length;
+      if (states.values.any((s) => s['done'] == true && s['synced'] != true)) {
+        error =
+            'Completion saved on this phone. Open Recall when online to sync.';
+      }
     } catch (_) {
       error = 'Could not schedule reminders. Open Phone reminders and retry.';
     }
@@ -263,8 +452,9 @@ class LocalReminders extends ChangeNotifier {
   }
 
   Future<void> clear() async {
-    if (!ready) return;
     await _queue.catchError((_) {});
+    await actionStore.storage.delete(key: NotificationActionStore.accountKey);
+    if (!ready) return;
     if (ready) await plugin.cancelAll();
     activeAccount = null;
     scheduledCount = 0;

@@ -8,6 +8,14 @@ PODS:
   - flutter_secure_storage_darwin (10.0.0):
     - Flutter
     - FlutterMacOS
+  - recaptcha_enterprise_flutter (18.9.3):
+    - Flutter
+    - RecaptchaEnterprise (<= 18.9.3, >= 18.9.1)
+  - RecaptchaEnterprise (18.9.1):
+    - RecaptchaEnterpriseSDK (= 18.9.1)
+    - RecaptchaInterop (~> 101.0.0)
+  - RecaptchaEnterpriseSDK (18.9.1)
+  - RecaptchaInterop (101.0.0)
   - speech_to_text (7.2.0):
     - CwlCatchException
     - Flutter
@@ -17,12 +25,16 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
+  - recaptcha_enterprise_flutter (from `.symlinks/plugins/recaptcha_enterprise_flutter/ios`)
   - speech_to_text (from `.symlinks/plugins/speech_to_text/darwin`)
 
 SPEC REPOS:
   trunk:
     - CwlCatchException
     - CwlCatchExceptionSupport
+    - RecaptchaEnterprise
+    - RecaptchaEnterpriseSDK
+    - RecaptchaInterop
 
 EXTERNAL SOURCES:
   Flutter:
@@ -31,6 +43,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_local_notifications/ios"
   flutter_secure_storage_darwin:
     :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
+  recaptcha_enterprise_flutter:
+    :path: ".symlinks/plugins/recaptcha_enterprise_flutter/ios"
   speech_to_text:
     :path: ".symlinks/plugins/speech_to_text/darwin"
 
@@ -40,8 +54,12 @@ SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_local_notifications: 643a3eda1ce1c0599413ca31672536d423dee214
   flutter_secure_storage_darwin: 46e401699982ee74142909676535e0f6a7321e58
+  recaptcha_enterprise_flutter: 04e77dc4967532eeb25175828ed6fc906fe0bd7e
+  RecaptchaEnterprise: a28429a5366cc0f687ac5e93a44c5caa2c685aa9
+  RecaptchaEnterpriseSDK: 72239ea30c486d9093918c7b31eb85629eff1a50
+  RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   speech_to_text: 3b313d98516d3d0406cea424782ec25470c59d19
 
-PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+PODFILE CHECKSUM: 53a6aebc29ccee84c41f92f409fc20cd4ca011f1
 
 COCOAPODS: 1.16.2

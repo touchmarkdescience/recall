@@ -2,6 +2,12 @@
 
 Native iPhone and Android client for Recall. The existing Next.js service remains the source of truth for accounts, contacts, conversations, extraction, and actions.
 
+## Accounts
+
+New accounts are created inside Recall. On **Create account**, Google's native reCAPTCHA SDK supplies a fresh signup token; the server verifies it against the configured platform key, package/bundle ID, action and risk threshold before creating the account. The returned session is stored securely and the user enters Recall without a browser handoff. Existing-account sign-in does not run CAPTCHA. See [native signup setup](../docs/NATIVE_SIGNUP_SETUP.md) for required Google Cloud keys and server configuration. Missing configuration or failed verification keeps the form and fails closed.
+
+The Google SDK requires iOS 15 or later. The iPhone bundle ID is `com.touchmarkdes.recall`, matching the approved Android application ID. Native signup has automated tests; real-device verification requires configured Google keys and a deployed backend.
+
 ## Run for development
 
 1. Install Flutter 3.41 or newer and the Android/iOS toolchain.
@@ -25,7 +31,13 @@ On iOS, notification delivery and speech recognition require tests on a real dev
 
 ## Release setup
 
-Android uses the permanent application ID `com.touchmarkdes.recall`. Configure local Android upload signing using `android/key.properties.example`; never commit the keystore or passwords. Apple signing/capabilities and the final iOS bundle identifier still need configuration. Test notification permission, exact alarm handling, reboot rescheduling, native speech recognition, and phone layouts on physical Android and iPhone devices before store distribution. Existing live accounts can sign in against the live API URL through the current session-cookie flow.
+Current Android candidate: [1.0.10 (16)](release/CHANGELOG-1.0.10.md), over the
+owner-confirmed Play release 1.0.9 (13). The shared pubspec defaults to Android
+1.0.10+16. The pending iPhone replacement remains 1.0.8 (15), built with explicit
+`--build-name=1.0.8 --build-number=15`; do not use the shared default for that
+rejected-version resubmission.
+
+Android uses the permanent application ID `com.touchmarkdes.recall`. Configure local Android upload signing using `android/key.properties.example`; never commit the keystore or passwords. iPhone uses `com.touchmarkdes.recall` with the configured Touchmark team; signing access must be available on the release Mac. See [iPhone replacement build 15](release/IOS-1.0.8-build15.md) for the current TestFlight/review workflow. Test notification permission, exact alarm handling, reboot rescheduling, native speech recognition, and phone layouts on physical Android and iPhone devices before store distribution. Existing live accounts can sign in against the live API URL through the current session-cookie flow.
 
 ## Version 1.0.1 feedback changes
 

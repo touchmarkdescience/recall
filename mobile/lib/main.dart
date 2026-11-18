@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'speech_capture.dart';
+import 'signup_protection.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'local_reminders.dart';
 import 'recall_api.dart';
@@ -143,11 +144,9 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
       for (final action in actions.where((a) => a.id == id)) {
         action.status = status;
       }
-      try {
-        await load();
-      } catch (_) {
-        /* POST succeeded; retain confirmed status. */
-      }
+      // The server confirmed this status. Keep the owned local record current
+      // without waiting for unrelated dashboard reads. The finally block still
+      // reconciles the phone's notification queue, including cancellation.
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -186,6 +185,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     reminders.addListener(reminderChanged);
+    reminders.onNotificationAction = refreshNotificationActions;
     api = widget.client ?? RecallApi(null);
     bootstrap();
   }
@@ -194,15 +194,28 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  Future<void> refreshNotificationActions() async {
+    if (userId == null) return;
+    try {
+      await load();
+    } catch (_) {
+      if (userId != null) {
+        await reminders.reconcileNotificationActions(
+          userId!,
+          actions,
+          api,
+          serverSnapshot: false,
+        );
+        await reminders.sync(userId!, actions);
+        if (mounted) setState(() {});
+      }
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && userId != null) {
-      unawaited(
-        reminders.sync(
-          userId!,
-          actions.where((a) => !pendingUpdates.containsKey(a.id)).toList(),
-        ),
-      );
+      unawaited(refreshNotificationActions());
     }
   }
 
@@ -210,6 +223,7 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     reminders.removeListener(reminderChanged);
+    reminders.onNotificationAction = null;
     super.dispose();
   }
 
@@ -250,7 +264,8 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
   }
 
   Future<void> load() async {
-    final me = await api.get('me');
+    final snapshots = await Future.wait([api.get('me'), api.get('dashboard')]);
+    final me = snapshots[0];
     final user = me['user'] as Map?;
     if (user == null) throw RecallApiError('Please sign in.', 401);
     final account = '${user['id']}';
@@ -264,13 +279,14 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
       }
       pendingAccount = account;
     }
-    final dash = await api.get('dashboard');
+    final dash = snapshots[1];
     final nextActions = (dash['actions'] as List? ?? [])
         .map((v) => RecallAction(Map<String, dynamic>.from(v as Map)))
         .toList();
     final nextContacts = (dash['contacts'] as List? ?? [])
         .map((v) => RecallContact(Map<String, dynamic>.from(v as Map)))
         .toList();
+    await reminders.reconcileNotificationActions(account, nextActions, api);
     if (!mounted) return;
     setState(() {
       userId = '${user['id']}';
@@ -289,11 +305,17 @@ class _RootState extends State<Root> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> signIn(String email, String password, {String? name}) async {
+  Future<void> signIn(
+    String email,
+    String password, {
+    String? name,
+    Map<String, String>? signupProof,
+  }) async {
     final data = await api.post(name == null ? 'login' : 'register', {
       'email': email,
       'password': password,
       'name': ?name,
+      if (name != null) ...?signupProof,
     });
     final token = data['token'] as String?;
     if (token == null) {
@@ -820,18 +842,36 @@ class _OnboardingPageState extends State<OnboardingPage> {
 }
 
 class AuthPage extends StatefulWidget {
-  final Future<void> Function(String, String, {String? name}) onSubmit;
-  const AuthPage({super.key, required this.onSubmit});
+  final Future<void> Function(
+    String,
+    String, {
+    String? name,
+    Map<String, String>? signupProof,
+  })
+  onSubmit;
+  final SignupProtection? signupProtection;
+  const AuthPage({super.key, required this.onSubmit, this.signupProtection});
   @override
   State<AuthPage> createState() => _AuthPageState();
 }
 
 class _AuthPageState extends State<AuthPage> {
+  final form = GlobalKey<FormState>();
   final email = TextEditingController(),
       password = TextEditingController(),
       name = TextEditingController();
-  bool register = false, busy = false;
-  String? error;
+  late final SignupProtection protection;
+  bool register = false, busy = false, preparing = false;
+  String? error, progress;
+  int preparation = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    protection =
+        widget.signupProtection ?? GoogleSignupProtection(RecallApi(null));
+  }
+
   @override
   void dispose() {
     email.dispose();
@@ -840,21 +880,60 @@ class _AuthPageState extends State<AuthPage> {
     super.dispose();
   }
 
+  void switchMode() {
+    final attempt = ++preparation;
+    setState(() {
+      register = !register;
+      preparing = register;
+      error = null;
+    });
+    if (register) unawaited(prepareSignup(attempt));
+  }
+
+  Future<void> prepareSignup(int attempt) async {
+    try {
+      await protection.prepare();
+    } catch (e) {
+      if (mounted && register && preparation == attempt) {
+        setState(() => error = '$e');
+      }
+    } finally {
+      if (mounted && register && preparation == attempt) {
+        setState(() => preparing = false);
+      }
+    }
+  }
+
   Future<void> submit() async {
+    if (busy || preparing || !form.currentState!.validate()) return;
+    FocusScope.of(context).unfocus();
     setState(() {
       busy = true;
       error = null;
+      progress = register ? 'Checking account security…' : 'Signing in…';
     });
     try {
+      Map<String, String>? proof;
+      if (register) {
+        proof = await protection.verify();
+        if (!mounted) return;
+        setState(() => progress = 'Creating your account…');
+      }
       await widget.onSubmit(
         email.text.trim(),
         password.text,
         name: register ? name.text.trim() : null,
+        signupProof: proof,
       );
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() {
+          busy = false;
+          progress = null;
+        });
+      }
     }
   }
 
@@ -863,67 +942,138 @@ class _AuthPageState extends State<AuthPage> {
     body: SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(28),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 40),
-            Image.asset('assets/recall-icon.png', width: 70),
-            const SizedBox(height: 38),
-            Text(
-              register ? 'Start recalling.' : 'Welcome back.',
-              style: Theme.of(context).textTheme.headlineLarge,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'A calmer way to keep every commitment.',
-              style: TextStyle(fontSize: 17, color: muted),
-            ),
-            const SizedBox(height: 34),
-            if (register) ...[
-              TextField(
-                controller: name,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(labelText: 'Your name'),
-              ),
-              const SizedBox(height: 14),
-            ],
-            TextField(
-              controller: email,
-              keyboardType: TextInputType.emailAddress,
-              autocorrect: false,
-              decoration: const InputDecoration(labelText: 'Email'),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Password'),
-            ),
-            const SizedBox(height: 18),
-            if (error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: Text(error!, style: const TextStyle(color: Colors.red)),
-              ),
-            ElevatedButton(
-              onPressed: busy ? null : submit,
-              child: busy
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : Text(register ? 'Create account' : 'Sign in'),
-            ),
-            const SizedBox(height: 18),
-            Center(
-              child: TextButton(
-                onPressed: () => setState(() {
-                  register = !register;
-                  error = null;
-                }),
-                child: Text(
-                  register ? 'I have an account' : 'Create an account',
+        child: AutofillGroup(
+          child: Form(
+            key: form,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 20),
+                Image.asset('assets/recall-icon.png', width: 70),
+                const SizedBox(height: 26),
+                Text(
+                  register ? 'Start recalling.' : 'Welcome back.',
+                  style: Theme.of(context).textTheme.headlineLarge,
                 ),
-              ),
+                const SizedBox(height: 8),
+                const Text(
+                  'A calmer way to keep every commitment.',
+                  style: TextStyle(fontSize: 17, color: muted),
+                ),
+                const SizedBox(height: 26),
+                if (register) ...[
+                  TextFormField(
+                    key: const ValueKey('auth-name'),
+                    controller: name,
+                    enabled: !busy,
+                    textCapitalization: TextCapitalization.words,
+                    autofillHints: const [AutofillHints.name],
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(labelText: 'Your name'),
+                    validator: (value) =>
+                        value == null ||
+                            value.trim().isEmpty ||
+                            value.trim().length > 120
+                        ? 'Enter your name (up to 120 characters).'
+                        : null,
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                TextFormField(
+                  key: const ValueKey('auth-email'),
+                  controller: email,
+                  enabled: !busy,
+                  keyboardType: TextInputType.emailAddress,
+                  autocorrect: false,
+                  autofillHints: const [AutofillHints.username],
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (value) =>
+                      value == null ||
+                          value.trim().length > 254 ||
+                          !RegExp(r'^\S+@\S+\.\S+$').hasMatch(value.trim())
+                      ? 'Enter a valid email address.'
+                      : null,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  key: const ValueKey('auth-password'),
+                  controller: password,
+                  enabled: !busy,
+                  obscureText: true,
+                  autofillHints: [
+                    register
+                        ? AutofillHints.newPassword
+                        : AutofillHints.password,
+                  ],
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => submit(),
+                  decoration: const InputDecoration(labelText: 'Password'),
+                  validator: (value) =>
+                      value == null ||
+                          value.isEmpty ||
+                          value.length > 1024 ||
+                          (register && value.length < 8)
+                      ? register
+                            ? 'Use at least 8 characters.'
+                            : 'Enter your password.'
+                      : null,
+                ),
+                const SizedBox(height: 18),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Text(
+                      error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                ElevatedButton(
+                  key: const ValueKey('auth-submit'),
+                  onPressed: busy || preparing ? null : submit,
+                  child: busy || preparing
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: Text(
+                                preparing
+                                    ? 'Preparing security check…'
+                                    : progress!,
+                              ),
+                            ),
+                          ],
+                        )
+                      : Text(register ? 'Create account' : 'Sign in'),
+                ),
+                if (register) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Protected by Google reCAPTCHA.',
+                    style: TextStyle(fontSize: 13, color: muted),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Center(
+                  child: TextButton(
+                    onPressed: busy ? null : switchMode,
+                    child: Text(
+                      register ? 'I have an account' : 'Create an account',
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     ),

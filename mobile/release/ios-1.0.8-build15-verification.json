@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-17",
+  "version": "1.0.8",
+  "build": "15",
+  "bundleId": "com.touchmarkdes.recall",
+  "deviceFamily": [
+    1
+  ],
+  "minimumIOS": "15.0",
+  "sdk": "iphoneos26.5",
+  "productionApi": "https://recall.touchmarkdes.com",
+  "archiveCodeSignatureVerified": true,
+  "ipaCodeSignatureVerified": true,
+  "iconAlphaChecks": "15 source icons and 20 archive renditions opaque",
+  "objectiveCSymbols": "UUID 9F0ECCB1-2078-36EA-99F8-0C556F288895 arm64; 8 compilation units",
+  "serverSecretMatches": 0,
+  "ipaPath": "mobile/build/deliverables/Recall-iOS-1.0.8-build15.ipa",
+  "ipaBytes": 21540010,
+  "ipaSha256": "0d6885ae4dfd72a5969d6d2f7eb0c8dbfc0c84114bdbce882db837bcf5e60408",
+  "flutterAnalysis": "no issues",
+  "flutterTests": 72,
+  "appleValidation": "latest Xcode validation log reported validation succeeded",
+  "upload": "owner confirmed successful upload",
+  "physicalDeviceTests": "pending exact-build TestFlight QA and required recording",
+  "reviewSubmission": "not performed; recording outstanding",
+  "appStoreProcessing": "owner confirmed Processing; not yet available in TestFlight"
+}

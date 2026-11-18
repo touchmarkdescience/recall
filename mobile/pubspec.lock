@@ -448,6 +448,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.1"
+  recaptcha_enterprise_flutter:
+    dependency: "direct main"
+    description:
+      name: recaptcha_enterprise_flutter
+      sha256: c09a2f8ab3ef4ca6269e98fef0d880e88537e2c520f1000ff6ebd4d3e07e0e73
+      url: "https://pub.dev"
+    source: hosted
+    version: "18.9.3"
   record_use:
     dependency: transitive
     description:

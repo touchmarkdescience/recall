@@ -1,5 +1,8 @@
 # Recall — Google Play release preparation
 
+Current update: **1.0.10 (16)**. See [CHANGELOG-1.0.10.md](CHANGELOG-1.0.10.md)
+and [READ_ME_FIRST.md](READ_ME_FIRST.md). The build 7/10 notes below are historical.
+
 Prepared 9 November 2026. Owner: **Touchmark Descience Pvt Ltd** (organization account).
 Name: **Recall**. Package: **com.touchmarkdes.recall**. Candidate: **1.0.8 (10)**.
 Price: **Free**, no in-app purchases, no subscriptions, no advertising SDK in the current app.

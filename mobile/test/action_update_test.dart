@@ -10,10 +10,12 @@ import 'package:recall_mobile/recall_api.dart';
 
 class DelayedApi extends RecallApi {
   final update = Completer<Map<String, dynamic>>();
+  final reads = <String>[];
   bool done = false;
   DelayedApi() : super(null);
   @override
   Future<Map<String, dynamic>> get(String route) async {
+    reads.add(route);
     if (route == 'me') {
       return {
         'user': {'id': 'test-user', 'name': 'Sales'},
@@ -39,8 +41,67 @@ class DelayedApi extends RecallApi {
       update.future;
 }
 
+class GatedIdentityApi extends DelayedApi {
+  final identity = Completer<Map<String, dynamic>>();
+  @override
+  Future<Map<String, dynamic>> get(String route) {
+    if (route == 'me') {
+      reads.add(route);
+      return identity.future;
+    }
+    return super.get(route);
+  }
+}
+
 void main() {
   setUpAll(tz_data.initializeTimeZones);
+  testWidgets(
+    'Dashboard starts while identity is loading; no partial account is shown',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({
+        'seen_onboarding_v2': 'yes',
+        'session': 'test-token',
+      });
+      final api = GatedIdentityApi();
+      await tester.pumpWidget(MaterialApp(home: Root(client: api)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(api.reads, containsAll(['me', 'dashboard']));
+      expect(find.byType(ActionsPage), findsNothing);
+      api.identity.complete({
+        'user': {'id': 'test-user', 'name': 'Sales'},
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Today, remembered.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Confirmed completion clears updating without another full dashboard read',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({
+        'seen_onboarding_v2': 'yes',
+        'session': 'test-token',
+      });
+      final api = DelayedApi();
+      await tester.pumpWidget(MaterialApp(home: Root(client: api)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Actions'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byTooltip('Mark done'));
+      await tester.tap(find.byTooltip('Mark done'));
+      await tester.pump();
+      expect(find.text('Updating 1 action…'), findsOneWidget);
+      final initialReads = api.reads.length;
+      api.update.complete({'ok': true});
+      await tester.pumpAndSettle();
+      expect(api.reads.length, initialReads);
+      expect(find.text('Updating 1 action…'), findsNothing);
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      expect(find.text('Send the proposal'), findsOneWidget);
+    },
+  );
   testWidgets(
     'Today summary opens the matching Actions filter without a duplicate Speak button',
     (tester) async {

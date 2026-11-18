@@ -47,7 +47,7 @@ function syncSheetsAfterResponse(userId:string){
 export async function cloudGET(req:NextRequest,{params}:Context){
   try{
     const path=(await params).path.join('/');
-    if(path==='me'){const user=await currentUser(),provider=user?await getCloudTranscriptionProvider(user.id):defaultSttProvider();return response({user,accountDeletionAvailable:true,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
+    if(path==='me'){const user=await currentUser(),provider=user?await getCloudTranscriptionProvider(user.id):defaultSttProvider();return response({user,accountDeletionAvailable:true,aiMode:(process.env.OPENAI_API_KEY||process.env.GEMINI_API_KEY)?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
     const user=await onlyMine();
     if(path==='settings')return response(await getCloudSettings(user.id));
     if(path==='dashboard'){
@@ -58,10 +58,12 @@ export async function cloudGET(req:NextRequest,{params}:Context){
       ]);
       const notes=new Map(interactions.map(i=>[i.id,i.transcript]));
       const missing=[...new Set(actions.map(a=>a.interaction_id).filter((id):id is string=>!!id&&!notes.has(id)))];
-      // Small batches keep PostgREST URLs bounded, including older action notes.
-      for(let offset=0;offset<missing.length;offset+=100){
-        const linked=dataOrThrow(await cloud().from('recall_interactions').select('id,transcript').eq('user_id',user.id).in('id',missing.slice(offset,offset+100))) as {id:string;transcript:string}[];
-        for(const note of linked)notes.set(note.id,note.transcript);
+      // Small batches keep PostgREST URLs bounded; run batches concurrently to avoid sequential round-trips.
+      if(missing.length>0){
+        const batches:string[][]=[];
+        for(let offset=0;offset<missing.length;offset+=100)batches.push(missing.slice(offset,offset+100));
+        const results=await Promise.all(batches.map(batch=>cloud().from('recall_interactions').select('id,transcript').eq('user_id',user.id).in('id',batch).then(dataOrThrow) as Promise<{id:string;transcript:string}[]>));
+        for(const linked of results){for(const note of linked)notes.set(note.id,note.transcript);}
       }
       const names=new Map(contacts.map(c=>[c.id,c]));
       return response({contacts:contacts.map(contactView),actions:actions.map(a=>actionView(a,a.contact_id?names.get(a.contact_id):undefined,undefined,notes.get(a.interaction_id||'')||'')),interactions:interactions.map(i=>interactionView(i,i.contact_id?names.get(i.contact_id):undefined))});

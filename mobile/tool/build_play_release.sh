@@ -16,6 +16,8 @@ fi
 if [[ "$candidate" == false ]]; then
   curl --fail --silent --show-error --max-time 20 "$api_url/api/me" |
     python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("accountDeletionAvailable") is True, "Deploy the account-deletion backend before making a store build"'
+  curl --fail --silent --show-error --max-time 20 "$api_url/api/security" |
+    python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("captchaRequired") is True and d.get("mobile",{}).get("androidSiteKey"), "Configure and deploy native signup verification before making a store build"'
 else
   echo 'CANDIDATE ONLY: backend deployment and acceptance tests still required before upload.'
 fi

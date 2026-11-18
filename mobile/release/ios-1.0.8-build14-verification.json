@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-17",
+  "version": "1.0.8",
+  "build": "14",
+  "bundleId": "com.touchmarkdes.recall",
+  "deviceFamily": [
+    1
+  ],
+  "archiveCodeSignatureVerified": true,
+  "simulator": "iPhone 12 / iOS 18.4: onboarding launch verified",
+  "physicalDeviceTests": "pending on replacement TestFlight build",
+  "ipaExport": "failed: No Accounts / iOS Distribution certificate unavailable",
+  "upload": "not performed",
+  "iconAlphaChecks": "15 source icons and 20 archive renditions opaque",
+  "objectiveCSymbols": "UUID 9F0ECCB1-2078-36EA-99F8-0C556F288895 arm64; eight compilation units",
+  "signatureVerification": "codesign --verify --deep --strict passed with macOS trust-service access"
+}

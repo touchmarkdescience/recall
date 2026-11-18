@@ -1,0 +1,71 @@
+{
+  "date": "2026-11-11",
+  "package": "com.touchmarkdes.recall",
+  "versionName": "1.0.9",
+  "versionCode": 13,
+  "targetSdk": 36,
+  "minSdk": 24,
+  "aabBytes": 44715204,
+  "aabSha256": "c913b439bf56a672d9b1255bd8a8c044100ee041eb74ac15d2e6e3e0902cf21d",
+  "signatureVerified": true,
+  "uploadCertificateMatchesExisting": true,
+  "uploadCertificateSha256": "1A:9D:65:E8:AB:CE:7D:1C:42:FC:1F:C4:60:A1:FC:E5:D3:65:44:4C:39:64:20:1B:33:00:D8:7C:20:81:64:F6",
+  "nativeLibraries": [
+    {
+      "library": "base/lib/arm64-v8a/libapp.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ]
+    },
+    {
+      "library": "base/lib/arm64-v8a/libdartjni.so",
+      "loadSegmentAlignment": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "library": "base/lib/arm64-v8a/libflutter.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ]
+    },
+    {
+      "library": "base/lib/x86_64/libapp.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ]
+    },
+    {
+      "library": "base/lib/x86_64/libdartjni.so",
+      "loadSegmentAlignment": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "library": "base/lib/x86_64/libflutter.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ]
+    }
+  ],
+  "all64BitELFSegments16KBAligned": true,
+  "knownLocalServerSecretsFoundInAAB": 0,
+  "flutterAnalyze": "passed",
+  "flutterTestsPassed": 70,
+  "productionBackendCapabilityChecks": "passed: account deletion and Android native signup",
+  "physicalAndroidAcceptance": "pending",
+  "runtime16KBDeviceTest": "unverified",
+  "playUpload": "not performed"
+}

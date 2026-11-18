@@ -1,0 +1,76 @@
+{
+  "date": "2026-11-17",
+  "package": "com.touchmarkdes.recall",
+  "versionName": "1.0.10",
+  "versionCode": 16,
+  "bundlePageAlignment": "PAGE_ALIGNMENT_16K",
+  "minSdk": 24,
+  "targetSdk": 36,
+  "debuggable": false,
+  "allowBackup": "false",
+  "notificationActionReceiverExported": "false",
+  "aabBytes": 44714680,
+  "aabSha256": "1f6fe599f96010c4401e481240f6e00da9d54427ca9e86a0df9cb0521fd707b9",
+  "signatureVerified": true,
+  "uploadCertificateMatchesExisting": true,
+  "uploadCertificateSha256": "1A:9D:65:E8:AB:CE:7D:1C:42:FC:1F:C4:60:A1:FC:E5:D3:65:44:4C:39:64:20:1B:33:00:D8:7C:20:81:64:F6",
+  "nativeLibraries": [
+    {
+      "library": "base/lib/arm64-v8a/libapp.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ]
+    },
+    {
+      "library": "base/lib/arm64-v8a/libdartjni.so",
+      "loadSegmentAlignment": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "library": "base/lib/arm64-v8a/libflutter.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ]
+    },
+    {
+      "library": "base/lib/x86_64/libapp.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ]
+    },
+    {
+      "library": "base/lib/x86_64/libdartjni.so",
+      "loadSegmentAlignment": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "library": "base/lib/x86_64/libflutter.so",
+      "loadSegmentAlignment": [
+        65536,
+        65536,
+        65536
+      ]
+    }
+  ],
+  "all64BitELFSegments16KBAligned": true,
+  "localSecretValuesChecked": 7,
+  "knownLocalServerSecretsFoundInAAB": 0,
+  "productionApi": "https://recall.touchmarkdes.com",
+  "physicalAndroidAcceptance": "pending exact Play-installed build",
+  "runtime16KBDeviceTest": "unverified",
+  "playUpload": "not performed",
+  "artifact": "mobile/build/deliverables/Recall-Android-1.0.10-build16.aab",
+  "testCoverage": "Artifact audit only; Flutter test evidence is recorded separately in release notes"
+}

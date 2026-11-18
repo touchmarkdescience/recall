@@ -29,7 +29,7 @@ export async function GET(req:NextRequest,{params}:Context) {
   if(process.env.NODE_ENV==='production')return error('Production database is not configured.',503);
   try {
     const path=(await params).path.join('/');
-    if(path==='me') {const user=await currentUser(),provider=user?getSettings(user.id).transcriptionProvider:defaultSttProvider();return json({user,accountDeletionAvailable:true,aiMode:process.env.OPENAI_API_KEY?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:!!(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
+    if(path==='me') {const user=await currentUser(),provider=user?getSettings(user.id).transcriptionProvider:defaultSttProvider();return json({user,accountDeletionAvailable:true,aiMode:(process.env.OPENAI_API_KEY||process.env.GEMINI_API_KEY)?'AI':'Local rules',transcriptionConfigured:sttConfigured(provider),transcriptionProvider:sttLabel(provider),pushConfigured:!!(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY&&process.env.VAPID_PRIVATE_KEY),vapidPublicKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY||''})}
     const user=await onlyMine();
     if(path==='settings') return json(getSettings(user.id));
     if(path==='dashboard') {
