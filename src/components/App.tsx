@@ -97,16 +97,22 @@ export default function App({initialAuthMode='register'}:{initialAuthMode?:'logi
     try{localStorage.removeItem('recall_dashboard_cache');}catch{}
     const read=writes.current.read(),sequence=++refreshSequence.current;
     const mePromise=api<{user:User|null;aiMode:string;transcriptionConfigured:boolean;transcriptionProvider:string;pushConfigured:boolean;vapidPublicKey:string}>('me');
-    const dashPromise=api<Dashboard>('dashboard');
+    const dashPromise=api<Dashboard>('dashboard').then(
+      data=>({ok:true as const,data}),
+      error=>({ok:false as const,error})
+    );
     mePromise.then(m=>{
       userRef.current=m.user;
       setUser(m.user);setMode(m.aiMode);setTranscriptionConfigured(m.transcriptionConfigured);setTranscriptionProvider(m.transcriptionProvider);setPushConfigured(m.pushConfigured);setVapidKey(m.vapidPublicKey);
       if(m.user){
         const expectedAccountId=m.user.id;
-        dashPromise.then(d=>{
-          applyDashboard(d,read,sequence,expectedAccountId);
-        }).catch(e=>{
-          if(sequence===refreshSequence.current&&writes.current.canApply(read)&&userRef.current?.id===expectedAccountId)setDashboardError(e instanceof Error?e.message:'Could not load follow-ups.');
+        dashPromise.then(res=>{
+          if(sequence!==refreshSequence.current||!writes.current.canApply(read)||userRef.current?.id!==expectedAccountId)return;
+          if(res.ok){
+            applyDashboard(res.data,read,sequence,expectedAccountId);
+          }else{
+            setDashboardError(res.error instanceof Error?res.error.message:'Could not load follow-ups.');
+          }
         });
       }
     }).catch(e=>{setError(e.message);setUser(null);userRef.current=null;});
