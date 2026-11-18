@@ -14,7 +14,8 @@
     "test:voice": "node --experimental-strip-types scripts/test-voice-settings.mjs",
     "test:voice-stop": "node --experimental-strip-types scripts/test-voice-stop.mjs",
     "test:daily-summary": "node --experimental-strip-types scripts/test-daily-summary.mjs",
-    "benchmark:voice": "node --experimental-strip-types scripts/benchmark-voice-review.mjs"
+    "benchmark:voice": "node --experimental-strip-types scripts/benchmark-voice-review.mjs",
+    "test:english": "node --experimental-strip-types scripts/test-english-parsing.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.52.0",

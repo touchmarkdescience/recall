@@ -1,0 +1,17 @@
+{
+  "method": "Same fixed English regression corpus, in-process warm local parsing; no audio, network or production latency.",
+  "previousRevision": "a0435a9",
+  "examples": 48,
+  "previousPassed": 19,
+  "currentPassed": 48,
+  "previous": {
+    "p50Ms": 0.058,
+    "p95Ms": 0.147,
+    "samples": 960
+  },
+  "current": {
+    "p50Ms": 0.145,
+    "p95Ms": 0.318,
+    "samples": 960
+  }
+}

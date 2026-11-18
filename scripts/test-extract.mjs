@@ -141,7 +141,7 @@ const reported = 'today I met Anand from SS TPL he wanted me to call him tomorro
 const explicitAlert = naturalExtract(reported, noonIST);
 assert.equal(explicitAlert.contactName,'Anand');
 assert.equal(explicitAlert.actions.length,2);
-assert.equal(explicitAlert.actions[0].dueAt,null);
+assert.equal(explicitAlert.actions[0].dueAt,'2026-11-10T03:30:00.000Z'); // date-only task retains tomorrow
 assert.equal(explicitAlert.actions[0].timeSpecified,false);
 assert.equal(explicitAlert.actions[1].kind,'reminder');
 assert.equal(explicitAlert.actions[1].dueAt,'2026-11-09T12:30:00.000Z');
@@ -159,7 +159,7 @@ console.log('Explicit alert day/time regression tests passed');
 const tonight = naturalExtract('Today I met Anand sir regarding his cricket match he wants a meeting tomorrow afternoon for lunch you set a reminder for tonight 8:00 p.m. to check and confirm my availability',noonIST);
 assert.equal(tonight.contactName,'Anand');
 assert.equal(tonight.actions.length,2);
-assert.equal(tonight.actions[0].dueAt,null);
+assert.equal(tonight.actions[0].dueAt,'2026-11-10T03:30:00.000Z');
 assert.equal(tonight.actions[1].dueAt,'2026-11-09T14:30:00.000Z');
 const prep = naturalExtract('Today I had discussion with Mr arayapan regarding the product demo prepare the PPT today evening 5:00 p.m. our meeting is scheduled tomorrow morning 9:00 a.m.',noonIST);
 assert.equal(prep.actions.length,2);
