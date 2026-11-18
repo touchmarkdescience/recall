@@ -1,3 +1,5 @@
+import { validSummaryTime } from './dailySummary';
+import { dispatchDailySummaries } from './dailySummaryDispatch';
 import { protectRequest, protectAuth, protectUserBudget, readJsonLimited, securityResponse } from './abuse';
 import { validReminder, reminderAt } from './reminders';
 import { safeFailure } from './serverErrors';
@@ -8,7 +10,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { clearSession, currentUser, passwordHash, passwordValid, setSession } from './auth';
 import { cloud, dataOrThrow } from './cloud';
-import { enqueueCloudSheetEvent, flushCloudSheetOutbox, getCloudSettings, getCloudTranscriptionProvider } from './cloudSettings';
+import { ensureCloudSettings, enqueueCloudSheetEvent, flushCloudSheetOutbox, getCloudSettings, getCloudTranscriptionProvider } from './cloudSettings';
 import { extract, type DraftAction } from './extract';
 import { defaultSttProvider, sttConfigured, sttLabel, type SttProvider } from './stt';
 
@@ -168,6 +170,40 @@ export async function cloudPOST(req:NextRequest,{params}:Context){
       syncSheetsAfterResponse(user.id);
       return writeResponse({ok:true,sheetSyncPending:saved.sheetSyncPending,action:actionView(saved.action,saved.contact||undefined,saved.summary||'',saved.originalNote||'')},'action',started,authorized,written);
     }
+    if(path==='settings/daily-summary'){
+      if(typeof body.dailySummaryEnabled!=='boolean'||!validSummaryTime(body.dailySummaryTime))return error('Choose a valid daily summary time in IST.');
+      await ensureCloudSettings(user.id);
+      dataOrThrow(await cloud().from('recall_user_settings').update({daily_summary_enabled:body.dailySummaryEnabled,daily_summary_time:body.dailySummaryTime,updated_at:now()}).eq('user_id',user.id).select('user_id').single());
+      return response({dailySummaryEnabled:body.dailySummaryEnabled,dailySummaryTime:body.dailySummaryTime});
+    }
+    if(path==='settings/transcription'){
+      const provider=body.transcriptionProvider;
+      if(provider!=='groq'&&provider!=='gemini')return error('Choose a transcription provider from the list.');
+      if(!sttConfigured(provider))return error(`${sttLabel(provider)} is not configured. Your previous service is unchanged.`,400);
+      await ensureCloudSettings(user.id);
+      dataOrThrow(await cloud().from('recall_user_settings').update({transcription_provider:provider,updated_at:now()}).eq('user_id',user.id).select('user_id').single());
+      const saved=await getCloudTranscriptionProvider(user.id);
+      if(saved!==provider)throw new Error('Transcription service could not be verified after saving.');
+      return response({transcriptionProvider:saved,transcriptionService:sttLabel(saved),transcriptionConfigured:sttConfigured(saved)});
+    }
+    if(path==='settings/sheet'){
+      const settings=await getCloudSettings(user.id),sheetWebhookUrl=clean(body.sheetWebhookUrl),sheetSecret=clean(body.sheetSecret);
+      if(sheetWebhookUrl){try{const url=new URL(sheetWebhookUrl);if(url.protocol!=='https:'||!['script.google.com','script.googleusercontent.com'].includes(url.hostname))return error('Use an Apps Script web app URL.')}catch{return error('Enter a valid Apps Script URL.')}}
+      if(sheetWebhookUrl&&sheetSecret.length<16&&!settings.sheetConnected)return error('Use a sheet secret of at least 16 characters.');
+      const oldResult=await cloud().from('recall_user_settings').select('sheet_secret').eq('user_id',user.id).single();
+      if(oldResult.error)throw new Error(oldResult.error.message);
+      dataOrThrow(await cloud().from('recall_user_settings').update({sheet_webhook_url:sheetWebhookUrl||null,sheet_secret:sheetWebhookUrl?sheetSecret||oldResult.data?.sheet_secret:null,updated_at:now()}).eq('user_id',user.id).select('user_id').single());
+      if(sheetWebhookUrl)await enqueueCloudSheetEvent(user.id,{type:'ping'});
+      const sync=sheetWebhookUrl?await flushCloudSheetOutbox(user.id):{sent:0};
+      return response({...await getCloudSettings(user.id),synced:sync.sent});
+    }
+    if(path==='settings/reminders'){
+      const reminderMinutes=Number(body.reminderMinutes);
+      if(![0,15,30,60,1440].includes(reminderMinutes)||typeof body.pushEnabled!=='boolean')return error('Choose valid reminder settings.');
+      await ensureCloudSettings(user.id);
+      dataOrThrow(await cloud().from('recall_user_settings').update({push_enabled:body.pushEnabled,reminder_minutes:reminderMinutes,updated_at:now()}).eq('user_id',user.id).select('user_id').single());
+      return response(await getCloudSettings(user.id));
+    }
     if(path==='settings'){
       const pushEnabled=body.pushEnabled===true,reminderMinutes=Number(body.reminderMinutes),sheetWebhookUrl=clean(body.sheetWebhookUrl),sheetSecret=clean(body.sheetSecret);
       if(![0,15,30,60,1440].includes(reminderMinutes))return error('Choose a reminder time from the list.');
@@ -229,7 +265,7 @@ export async function cloudDispatch(req:NextRequest){
     if(!process.env.CRON_SECRET||req.headers.get('authorization')!==`Bearer ${process.env.CRON_SECRET}`)return error('Unauthorized',401);
     if(!process.env.VAPID_PRIVATE_KEY||!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY)return error('Web Push is not configured.');
     webpush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:admin@example.com',process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,process.env.VAPID_PRIVATE_KEY);
-    const due=dataOrThrow(await cloud().from('recall_actions').select('*').eq('status','pending').is('notified_at',null).not('due_at','is',null).lte('due_at',new Date(Date.now()+86400000).toISOString()).order('due_at').limit(500)) as Action[];
+    const due=dataOrThrow(await cloud().from('recall_actions').select('*').eq('status','pending').eq('time_specified',1).is('notified_at',null).not('due_at','is',null).lte('due_at',new Date(Date.now()+86400000).toISOString()).order('due_at').limit(500)) as Action[];
     const userIds=[...new Set(due.map(a=>a.user_id))];
     const settings=userIds.length?dataOrThrow(await cloud().from('recall_user_settings').select('user_id,push_enabled,reminder_minutes').in('user_id',userIds)):[];
     const settingMap=new Map((settings as {user_id:string;push_enabled:boolean;reminder_minutes:number}[]).map(s=>[s.user_id,s]));
@@ -244,6 +280,8 @@ export async function cloudDispatch(req:NextRequest){
       for(const sub of subscriptions){try{await webpush.sendNotification(sub.subscription_json,JSON.stringify({title:action.contact_id&&names.get(action.contact_id)?`Follow up with ${names.get(action.contact_id)}`:'Follow-up reminder',body:action.title,url:'/',tag:action.id}));sent++;delivered=true}catch(cause){const status=(cause as {statusCode?:number}).statusCode;if(status===404||status===410)dataOrThrow(await cloud().from('recall_push_subscriptions').delete().eq('id',sub.id).select('id'))}}
       if(delivered)dataOrThrow(await cloud().from('recall_actions').update({notified_at:now()}).eq('id',action.id).eq('status','pending').is('notified_at',null).select('id'));
     }
-    return response({checked:ready.length,sent});
+    let dailySummary;
+    try{dailySummary=await dispatchDailySummaries()}catch{console.error('recall_daily_summary_unavailable');dailySummary={unavailable:true}}
+    return response({checked:ready.length,sent,dailySummary});
   }catch(cause){return fail(cause)}
 }

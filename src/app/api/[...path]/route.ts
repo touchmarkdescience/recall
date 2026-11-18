@@ -1,3 +1,4 @@
+import { validSummaryTime } from '@/lib/dailySummary';
 import { protectRequest, protectAuth, protectUserBudget, readJsonLimited, securityResponse } from '@/lib/abuse';
 import { validReminder } from '@/lib/reminders';
 import { safeFailure } from '@/lib/serverErrors';
@@ -8,7 +9,7 @@ import webpush from 'web-push';
 import { clearSession, currentUser, passwordHash, passwordValid, setSession } from '@/lib/auth';
 import { db, row, rows, run } from '@/lib/db';
 import { extract, type DraftAction } from '@/lib/extract';
-import { enqueueSheetEvent, flushSheetOutbox, getSettings } from '@/lib/settings';
+import { ensureSettings, enqueueSheetEvent, flushSheetOutbox, getSettings } from '@/lib/settings';
 import { cloudConfigured } from '@/lib/cloud';
 import { cloudGET, cloudPOST, cloudDELETE, cloudDispatch } from '@/lib/cloudRoutes';
 import { defaultSttProvider, sttConfigured, sttLabel, type SttProvider } from '@/lib/stt';
@@ -151,6 +152,37 @@ async function handlePOST(req:NextRequest,{params}:Context) {
       enqueueSheetEvent(user.id,{type:'action',actionId:id,...action,kind,title,dueAt,timeSpecified,status,reminderMinutes});
       const sync=await flushSheetOutbox(user.id);
       return json({ok:true,sheetSyncPending:sync.pending});
+    }
+    if(path==='settings/daily-summary'){
+      if(typeof body.dailySummaryEnabled!=='boolean'||!validSummaryTime(body.dailySummaryTime))return error('Choose a valid daily summary time in IST.');
+      ensureSettings(user.id);
+      run('UPDATE user_settings SET daily_summary_enabled=?,daily_summary_time=?,updated_at=? WHERE user_id=?',body.dailySummaryEnabled?1:0,body.dailySummaryTime,now(),user.id);
+      return json({dailySummaryEnabled:body.dailySummaryEnabled,dailySummaryTime:body.dailySummaryTime});
+    }
+    if(path==='settings/transcription'){
+      const provider=body.transcriptionProvider;
+      if(provider!=='groq'&&provider!=='gemini')return error('Choose a transcription provider from the list.');
+      if(!sttConfigured(provider))return error(`${sttLabel(provider)} is not configured. Your previous service is unchanged.`,400);
+      ensureSettings(user.id);
+      run('UPDATE user_settings SET transcription_provider=?,updated_at=? WHERE user_id=?',provider,now(),user.id);
+      return json({transcriptionProvider:provider,transcriptionService:sttLabel(provider),transcriptionConfigured:sttConfigured(provider)});
+    }
+    if(path==='settings/sheet'){
+      const settings=getSettings(user.id),sheetWebhookUrl=clean(body.sheetWebhookUrl),sheetSecret=clean(body.sheetSecret);
+      if(sheetWebhookUrl){try{const url=new URL(sheetWebhookUrl);if(url.protocol!=='https:'||!['script.google.com','script.googleusercontent.com'].includes(url.hostname))return error('Use an Apps Script web app URL.')}catch{return error('Enter a valid Apps Script URL.')}}
+      if(sheetWebhookUrl&&sheetSecret.length<16&&!settings.sheetConnected)return error('Use a sheet secret of at least 16 characters.');
+      const existing=row<{secret:string|null}>('SELECT sheet_secret AS secret FROM user_settings WHERE user_id=?',user.id);
+      run('UPDATE user_settings SET sheet_webhook_url=?,sheet_secret=?,updated_at=? WHERE user_id=?',sheetWebhookUrl||null,sheetWebhookUrl?(sheetSecret||existing?.secret||null):null,now(),user.id);
+      if(sheetWebhookUrl)enqueueSheetEvent(user.id,{type:'ping'});
+      const sync=sheetWebhookUrl?await flushSheetOutbox(user.id):{sent:0};
+      return json({...getSettings(user.id),synced:sync.sent});
+    }
+    if(path==='settings/reminders'){
+      const reminderMinutes=Number(body.reminderMinutes);
+      if(![0,15,30,60,1440].includes(reminderMinutes)||typeof body.pushEnabled!=='boolean')return error('Choose valid reminder settings.');
+      ensureSettings(user.id);
+      run('UPDATE user_settings SET push_enabled=?,reminder_minutes=?,updated_at=? WHERE user_id=?',body.pushEnabled?'1':'0',reminderMinutes,now(),user.id);
+      return json(getSettings(user.id));
     }
     if(path==='settings') {
       const pushEnabled=body.pushEnabled===true;

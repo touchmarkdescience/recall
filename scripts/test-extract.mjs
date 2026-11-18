@@ -176,3 +176,15 @@ const advance15 = naturalExtract('remind me to prepare for call with CMS Placeme
 assert.equal(advance15.actions.length,2);
 assert.equal(advance15.actions[1].dueAt,'2026-11-09T09:00:00.000Z');
 console.log('Casual future clock, contact, and fifteen-minute advance tests passed');
+
+const {fastExtract,createReviewDraft}=await import('../src/lib/localExtract.ts');
+const evening=new Date('2026-11-18T12:30:00Z');
+const arumugam=fastExtract('Set a reminder for 5:00 a.m. to prepare presentation with Arumugam',evening);
+assert.equal(arumugam.contactName,'Arumugam');assert.equal(arumugam.actions[0].dueAt,'2026-11-18T23:30:00.000Z');
+assert.equal(arumugam.actions[0].timeSpecified,true);
+const friday=fastExtract('Follow up with Richard next Friday about the property',evening);
+assert.equal(friday.contactName,'Richard');assert.equal(friday.actions[0].timeSpecified,false);
+const meeting=fastExtract('Meet Richard next Friday at 11:00 AM',evening);assert.equal(meeting.contactName,'Richard');assert.equal(meeting.actions[0].timeSpecified,true);
+const tamilWords='நாளைக்கு மோகன்கிட்ட இந்த ப்ராப்பர்ட்டி சம்பந்தமா பேசணும்';
+const manual=createReviewDraft(tamilWords,evening);assert.equal(manual.summary,tamilWords);assert.equal(manual.actions[0].title,tamilWords);assert.equal(manual.actions[0].dueAt,null);assert.equal(manual.actions[0].timeSpecified,false);assert.equal(manual.needsManualReview,true);
+console.log('Literal name, next-occurrence clock, date-only task and Tamil manual-draft checks passed');

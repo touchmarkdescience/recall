@@ -4,19 +4,19 @@ import { cloud, dataOrThrow } from './cloud';
 import type { Settings } from './settings';
 import { sttProvider } from './stt';
 
-type Stored={push_enabled:boolean;reminder_minutes:number;sheet_webhook_url:string|null;sheet_secret:string|null;transcription_provider:string|null};
+type Stored={push_enabled:boolean;reminder_minutes:number;sheet_webhook_url:string|null;sheet_secret:string|null;transcription_provider:string|null;daily_summary_enabled:boolean;daily_summary_time:string};
 
 export async function ensureCloudSettings(userId:string) {
   dataOrThrow(await cloud().from('recall_user_settings').upsert({user_id:userId},{onConflict:'user_id',ignoreDuplicates:true}).select('user_id'));
 }
 
 async function storedSettings(userId:string):Promise<Stored> {
-  const result=await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider').eq('user_id',userId).maybeSingle();
+  const result=await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider,daily_summary_enabled,daily_summary_time').eq('user_id',userId).maybeSingle();
   if(result.error)throw new Error(result.error.message);
   if(result.data)return result.data as Stored;
   // Initialize only genuinely missing rows; ordinary reads must not write.
   await ensureCloudSettings(userId);
-  return dataOrThrow(await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider').eq('user_id',userId).single()) as Stored;
+  return dataOrThrow(await cloud().from('recall_user_settings').select('push_enabled,reminder_minutes,sheet_webhook_url,sheet_secret,transcription_provider,daily_summary_enabled,daily_summary_time').eq('user_id',userId).single()) as Stored;
 }
 
 async function pendingSheetCount(userId:string) {
@@ -33,7 +33,7 @@ export async function getCloudTranscriptionProvider(userId:string) {
 
 export async function getCloudSettings(userId:string):Promise<Settings> {
   const [s,pending]=await Promise.all([storedSettings(userId),pendingSheetCount(userId)]);
-  return {pushEnabled:s.push_enabled,reminderMinutes:s.reminder_minutes,sheetWebhookUrl:s.sheet_webhook_url||'',sheetConnected:Boolean(s.sheet_webhook_url&&s.sheet_secret),syncPending:pending,transcriptionProvider:sttProvider(s.transcription_provider)};
+  return {pushEnabled:s.push_enabled,reminderMinutes:s.reminder_minutes,sheetWebhookUrl:s.sheet_webhook_url||'',sheetConnected:Boolean(s.sheet_webhook_url&&s.sheet_secret),syncPending:pending,transcriptionProvider:sttProvider(s.transcription_provider),dailySummaryEnabled:s.daily_summary_enabled!==false,dailySummaryTime:s.daily_summary_time||'07:00'};
 }
 
 export async function enqueueCloudSheetEvent(userId:string,payload:Record<string,unknown>) {

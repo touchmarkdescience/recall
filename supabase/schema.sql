@@ -1,6 +1,7 @@
 -- Recall production schema. Run once in the SQL Editor of the intended Supabase project.
 -- For current fast-write routes, then run write-performance-migration.sql and
 -- write-performance-check.sql before deploying the application.
+-- For daily follow-up summaries, also apply daily-summary-migration.sql.
 create extension if not exists pgcrypto;
 
 create table if not exists public.recall_users (
@@ -63,6 +64,8 @@ create table if not exists public.recall_user_settings (
   sheet_webhook_url text,
   sheet_secret text,
   transcription_provider text,
+  daily_summary_enabled boolean not null default true,
+  daily_summary_time text not null default '07:00',
   updated_at timestamptz not null default now()
 );
 alter table public.recall_user_settings add column if not exists transcription_provider text;

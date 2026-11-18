@@ -1,0 +1,73 @@
+{
+  "method": "Actual component lifecycle with browser mocks; simulated DB/network delay. No real audio or production requests.",
+  "targetMs": 3000,
+  "fixtureDelays": {
+    "databaseMs": 40,
+    "transcriptionMs": 900,
+    "serverExtractionMs": 350
+  },
+  "beforeRevision": "651072e",
+  "before": [
+    {
+      "stopToTextMs": 958.4,
+      "stopToDraftDataMs": 1309,
+      "transcriptionRequests": 1,
+      "text": "Set a reminder for 5:00 a.m. to prepare presentation with R mugam"
+    },
+    {
+      "stopToTextMs": 943,
+      "stopToDraftDataMs": 1294.1,
+      "transcriptionRequests": 1,
+      "text": "Set a reminder for 5:00 a.m. to prepare presentation with R mugam"
+    },
+    {
+      "stopToTextMs": 942.3,
+      "stopToDraftDataMs": 1293.4,
+      "transcriptionRequests": 1,
+      "text": "Set a reminder for 5:00 a.m. to prepare presentation with R mugam"
+    }
+  ],
+  "after": [
+    {
+      "stopToTextMs": 244.6,
+      "stopToDraftDataMs": 301.4,
+      "transcriptionRequests": 0,
+      "text": "Set a reminder for 5:00 a.m. to prepare presentation with Arumugam",
+      "contact": "Arumugam",
+      "source": "live"
+    },
+    {
+      "stopToTextMs": 243.8,
+      "stopToDraftDataMs": 276.9,
+      "transcriptionRequests": 0,
+      "text": "Set a reminder for 5:00 a.m. to prepare presentation with Arumugam",
+      "contact": "Arumugam",
+      "source": "live"
+    },
+    {
+      "stopToTextMs": 242.5,
+      "stopToDraftDataMs": 243,
+      "transcriptionRequests": 0,
+      "text": "Set a reminder for 5:00 a.m. to prepare presentation with Arumugam",
+      "contact": "Arumugam",
+      "source": "live"
+    }
+  ],
+  "medianStopToDraftDataMs": {
+    "before": 1294.1,
+    "after": 276.9
+  },
+  "fallback": {
+    "stopToTextMs": 1146.1,
+    "stopToDraftDataMs": 1146.6,
+    "transcriptionRequests": 1,
+    "text": "Set a reminder for 5:00 a.m. to prepare presentation with R mugam",
+    "contact": "R mugam",
+    "source": "service"
+  },
+  "parserMs": {
+    "p50": 0.08795800000007148,
+    "p95": 0.25129199999992125
+  },
+  "limits": "Excludes physical recording/browser speech finalization, deployed network, cold starts and live speech accuracy. Uncertain sentences become an editable draft with optional manual scheduling; no automatic server extraction."
+}

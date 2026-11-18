@@ -10,7 +10,10 @@
     "typecheck": "tsc --noEmit",
     "test:extract": "node --experimental-strip-types scripts/test-extract.mjs",
     "test:security": "node --experimental-strip-types scripts/test-security.mjs",
-    "test:writes": "node --experimental-strip-types scripts/test-write-performance.mjs"
+    "test:writes": "node --experimental-strip-types scripts/test-write-performance.mjs",
+    "test:voice": "node --experimental-strip-types scripts/test-voice-settings.mjs",
+    "test:daily-summary": "node --experimental-strip-types scripts/test-daily-summary.mjs",
+    "benchmark:voice": "node --experimental-strip-types scripts/benchmark-voice-review.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.52.0",

@@ -1,0 +1,33 @@
+{
+  "date": "2026-11-18",
+  "method": "Single real Gemini text-extraction requests using a non-confidential sample and locally configured key. Not audio transcription or a physical-device benchmark.",
+  "requests": [
+    {
+      "model": "gemini-2.5-flash",
+      "ms": 470,
+      "status": 404,
+      "structuredSchema": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "ms": 5304,
+      "status": "ok",
+      "structuredSchema": false
+    },
+    {
+      "model": "gemini-flash-lite-latest",
+      "ms": 8473,
+      "status": "ok",
+      "structuredSchema": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "ms": 9900,
+      "status": "ok",
+      "structuredSchema": true,
+      "input": "Short Tamil follow-up example",
+      "result": "AI returned a date-only follow-up in Tamil"
+    }
+  ],
+  "limits": "One request per profile, no latency distribution or speech accuracy claim. PWA no longer waits for these extraction requests. The old model returned unavailable for this key; deployment configuration may differ."
+}

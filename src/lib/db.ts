@@ -26,6 +26,8 @@ export function db() {
     `);
     const settingsColumns=database.prepare('PRAGMA table_info(user_settings)').all() as Array<{name:string}>;
     if(!settingsColumns.some(column=>column.name==='transcription_provider'))database.exec('ALTER TABLE user_settings ADD COLUMN transcription_provider TEXT');
+    if(!settingsColumns.some(column=>column.name==='daily_summary_enabled'))database.exec('ALTER TABLE user_settings ADD COLUMN daily_summary_enabled INTEGER NOT NULL DEFAULT 1');
+    if(!settingsColumns.some(column=>column.name==='daily_summary_time'))database.exec("ALTER TABLE user_settings ADD COLUMN daily_summary_time TEXT NOT NULL DEFAULT '07:00'");
     const columns=database.prepare('PRAGMA table_info(actions)').all() as Array<{name:string;notnull:number}>;
     if(!columns.some(column=>column.name==='duration_minutes'))database.exec('ALTER TABLE actions ADD COLUMN duration_minutes INTEGER NOT NULL DEFAULT 30');
     if(!columns.some(column=>column.name==='time_specified'))database.exec('ALTER TABLE actions ADD COLUMN time_specified INTEGER NOT NULL DEFAULT 1');
